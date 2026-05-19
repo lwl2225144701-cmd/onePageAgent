@@ -1,0 +1,83 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: onepage-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - onepage_net
+      - infra_default
+    restart: unless-stopped
+
+  worker-voice:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    container_name: onepage-worker-voice
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app
+    command: celery -A app.workers.celery_app worker -Q voice_queue --concurrency=2 --loglevel=info
+    networks:
+      - onepage_net
+      - infra_default
+    restart: unless-stopped
+
+  worker-image:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    container_name: onepage-worker-image
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app
+    command: celery -A app.workers.celery_app worker -Q image_queue --concurrency=2 --loglevel=info
+    networks:
+      - onepage_net
+      - infra_default
+    restart: unless-stopped
+
+  worker-llm:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    container_name: onepage-worker-llm
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app
+    command: celery -A app.workers.celery_app worker -Q llm_queue --concurrency=4 --loglevel=info
+    networks:
+      - onepage_net
+      - infra_default
+    restart: unless-stopped
+
+  worker-export:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker-export
+    container_name: onepage-worker-export
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app
+    command: celery -A app.workers.celery_app worker -Q export_queue --concurrency=1 --loglevel=info
+    networks:
+      - onepage_net
+      - infra_default
+    restart: unless-stopped
+
+networks:
+  onepage_net:
+    driver: bridge
+  infra_default:
+    external: true

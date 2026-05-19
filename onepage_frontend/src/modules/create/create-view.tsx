@@ -90,7 +90,7 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
           </label>
           <Tool icon={Flower2} label="选择素材" />
         </div>
-        <label className="mb-2 block font-semibold">今天去了海边，阳光很温柔，海风微咸。</label>
+        <label className="mb-2 block font-semibold">写下今天想被记住的内容</label>
         <textarea
           className="min-h-40 w-full resize-none rounded-lg border border-line bg-white/75 p-4 leading-8 outline-none"
           maxLength={300}

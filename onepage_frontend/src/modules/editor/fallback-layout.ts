@@ -6,7 +6,7 @@ export const fallbackLayout: LayoutJSON = {
   elements: [
     {
       type: "text",
-      props: { id: "title", content: "海边的\n治愈时光", x: 320, y: 120, w: 430, size: 86, align: "center", color: "#332b22" },
+      props: { id: "title", content: "生成中的标题", x: 320, y: 120, w: 430, size: 72, align: "center", color: "#332b22" },
       z_index: 40
     },
     {
@@ -23,7 +23,7 @@ export const fallbackLayout: LayoutJSON = {
       type: "text",
       props: {
         id: "note",
-        content: "今天去了海边，阳光很温柔，海风微咸。和朋友一起散步、拍照，度过了一个轻松治愈的周末～",
+        content: "这里会显示你的生成结果",
         x: 150,
         y: 1080,
         w: 780,

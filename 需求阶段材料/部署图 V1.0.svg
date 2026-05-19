@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="2400" height="1500" viewBox="0 0 2400 1500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font: 700 44px "Arial", "Microsoft YaHei", sans-serif; fill:#16233a; }
+      .sub { font: 400 24px "Arial", "Microsoft YaHei", sans-serif; fill:#53616f; }
+      .panel-title { font: 700 30px "Arial", "Microsoft YaHei", sans-serif; }
+      .section-title { font: 700 25px "Arial", "Microsoft YaHei", sans-serif; fill:#fff; }
+      .box-title { font: 700 22px "Arial", "Microsoft YaHei", sans-serif; fill:#172033; }
+      .box-text { font: 400 18px "Arial", "Microsoft YaHei", sans-serif; fill:#263445; }
+      .small { font: 400 16px "Arial", "Microsoft YaHei", sans-serif; fill:#4c5968; }
+      .tiny { font: 400 14px "Arial", "Microsoft YaHei", sans-serif; fill:#52606d; }
+      .note { font: 500 20px "Arial", "Microsoft YaHei", sans-serif; fill:#2d3748; }
+      .green { fill:#eaf7ea; stroke:#2e7d32; stroke-width:3; }
+      .blue { fill:#eef6ff; stroke:#1976d2; stroke-width:3; }
+      .cyan { fill:#e8fbff; stroke:#0097a7; stroke-width:3; }
+      .orange { fill:#fff4e6; stroke:#fb8c00; stroke-width:3; }
+      .purple { fill:#f5edff; stroke:#8e24aa; stroke-width:3; }
+      .gray { fill:#f4f6f8; stroke:#455a64; stroke-width:3; }
+      .red { fill:#fff1f1; stroke:#e53935; stroke-width:2.5; }
+      .whitebox { fill:#ffffff; stroke:#b7c1cc; stroke-width:2; }
+      .soft { fill:#ffffff; stroke:#9fb3c8; stroke-width:1.8; }
+      .arrow { stroke:#455a64; stroke-width:3; marker-end:url(#arrow); fill:none; }
+      .greenArrow { stroke:#2e7d32; stroke-width:3; marker-end:url(#arrowGreen); fill:none; }
+      .orangeArrow { stroke:#fb8c00; stroke-width:4; marker-end:url(#arrowOrange); fill:none; }
+      .dash { stroke-dasharray:10 8; }
+    </style>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+      <path d="M0,0 L14,7 L0,14 Z" fill="#455a64"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+      <path d="M0,0 L14,7 L0,14 Z" fill="#2e7d32"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+      <path d="M0,0 L14,7 L0,14 Z" fill="#fb8c00"/>
+    </marker>
+    <linearGradient id="secGreen" x1="0" x2="1"><stop offset="0" stop-color="#2e7d32"/><stop offset="1" stop-color="#43a047"/></linearGradient>
+    <linearGradient id="secBlue" x1="0" x2="1"><stop offset="0" stop-color="#1976d2"/><stop offset="1" stop-color="#42a5f5"/></linearGradient>
+    <linearGradient id="secCyan" x1="0" x2="1"><stop offset="0" stop-color="#00838f"/><stop offset="1" stop-color="#00acc1"/></linearGradient>
+    <linearGradient id="secOrange" x1="0" x2="1"><stop offset="0" stop-color="#ef6c00"/><stop offset="1" stop-color="#fb8c00"/></linearGradient>
+    <linearGradient id="secPurple" x1="0" x2="1"><stop offset="0" stop-color="#6a1b9a"/><stop offset="1" stop-color="#8e24aa"/></linearGradient>
+    <linearGradient id="secGray" x1="0" x2="1"><stop offset="0" stop-color="#37474f"/><stop offset="1" stop-color="#607d8b"/></linearGradient>
+  </defs>
+
+  <rect width="2400" height="1500" fill="#fafafa"/>
+  <text x="1200" y="58" text-anchor="middle" class="title">AI 智能排版手账 APP —— 部署架构图</text>
+  <text x="1200" y="96" text-anchor="middle" class="sub">从 MVP 单机部署 到 生产级高并发部署演进｜Python 技术栈｜异步任务｜AI 模型服务</text>
+
+  <!-- left panel MVP -->
+  <rect x="45" y="145" width="1090" height="1120" rx="16" class="green"/>
+  <text x="590" y="195" text-anchor="middle" class="panel-title" fill="#1b5e20">阶段一：MVP 单机部署（快速验证）</text>
+  <text x="590" y="230" text-anchor="middle" class="small">适合早期验证：一台云服务器即可，成本低，部署简单</text>
+
+  <!-- MVP user + frontend -->
+  <text x="110" y="330" font-size="70" fill="#16233a">♙</text>
+  <text x="112" y="370" class="box-text">用户</text>
+  <path d="M165 320 L235 320" class="greenArrow"/>
+
+  <rect x="250" y="270" width="360" height="105" rx="8" class="whitebox"/>
+  <text x="430" y="305" text-anchor="middle" class="box-title">Web 前端（Next.js）</text>
+  <text x="430" y="335" text-anchor="middle" class="box-text">静态资源打包</text>
+  <text x="430" y="363" text-anchor="middle" class="box-text">Konva 可编辑画布</text>
+
+  <path d="M610 320 L720 320" class="greenArrow"/>
+  <rect x="740" y="270" width="330" height="105" rx="8" class="soft" stroke-dasharray="8 6"/>
+  <text x="905" y="305" text-anchor="middle" class="box-title">前端导出（本地完成）</text>
+  <text x="905" y="335" text-anchor="middle" class="box-text">导出 PNG / JPEG</text>
+  <text x="905" y="363" text-anchor="middle" class="box-text">导出 PDF</text>
+
+  <!-- MVP nginx -->
+  <path d="M430 375 L430 425" class="arrow"/>
+  <rect x="120" y="425" width="760" height="105" rx="8" class="whitebox"/>
+  <text x="500" y="462" text-anchor="middle" class="box-title">Nginx</text>
+  <text x="500" y="492" text-anchor="middle" class="box-text">反向代理 / HTTPS / 静态资源服务 / 简单限流</text>
+
+  <!-- MVP app service section -->
+  <path d="M500 530 L500 585" class="arrow"/>
+  <rect x="80" y="585" width="980" height="240" rx="12" fill="#f3fff3" stroke="#81c784" stroke-width="2"/>
+  <text x="110" y="625" class="panel-title" fill="#1b5e20">应用服务（一台服务器）</text>
+
+  <rect x="115" y="650" width="210" height="130" rx="8" class="whitebox"/>
+  <text x="220" y="684" text-anchor="middle" class="box-title">FastAPI 服务</text>
+  <text x="220" y="714" text-anchor="middle" class="box-text">API 接口</text>
+  <text x="220" y="742" text-anchor="middle" class="box-text">任务创建</text>
+  <text x="220" y="770" text-anchor="middle" class="box-text">SSE 推送</text>
+
+  <rect x="345" y="650" width="220" height="130" rx="8" class="whitebox"/>
+  <text x="455" y="684" text-anchor="middle" class="box-title">Celery Worker</text>
+  <text x="455" y="714" text-anchor="middle" class="box-text">异步任务处理</text>
+  <text x="455" y="742" text-anchor="middle" class="box-text">队列消费</text>
+  <text x="455" y="770" text-anchor="middle" class="box-text">定时任务</text>
+
+  <rect x="585" y="650" width="210" height="130" rx="8" class="whitebox"/>
+  <text x="690" y="684" text-anchor="middle" class="box-title">Redis</text>
+  <text x="690" y="714" text-anchor="middle" class="box-text">Broker</text>
+  <text x="690" y="742" text-anchor="middle" class="box-text">任务状态</text>
+  <text x="690" y="770" text-anchor="middle" class="box-text">天气缓存</text>
+
+  <rect x="815" y="650" width="210" height="130" rx="8" class="whitebox"/>
+  <text x="920" y="684" text-anchor="middle" class="box-title">PostgreSQL</text>
+  <text x="920" y="714" text-anchor="middle" class="box-text">任务记录</text>
+  <text x="920" y="742" text-anchor="middle" class="box-text">偏好数据</text>
+  <text x="920" y="770" text-anchor="middle" class="box-text">素材元数据</text>
+
+  <!-- MVP AI -->
+  <path d="M570 825 L570 875" class="arrow"/>
+  <rect x="80" y="875" width="980" height="175" rx="12" fill="#f8fff8" stroke="#81c784" stroke-width="2"/>
+  <text x="110" y="915" class="panel-title" fill="#1b5e20">AI 模型服务（本机或 API）</text>
+
+  <rect x="115" y="940" width="390" height="80" rx="8" class="whitebox"/>
+  <text x="310" y="972" text-anchor="middle" class="box-title">SenseVoiceSmall</text>
+  <text x="310" y="1002" text-anchor="middle" class="box-text">语音识别 + 情感识别 + 声学事件</text>
+
+  <rect x="555" y="940" width="430" height="80" rx="8" class="whitebox"/>
+  <text x="770" y="972" text-anchor="middle" class="box-title">LLM 服务（通过 API）</text>
+  <text x="770" y="1002" text-anchor="middle" class="box-text">DeepSeek / Qwen 文本，Qwen-VL 图片理解</text>
+
+  <!-- MVP storage -->
+  <path d="M570 1050 L570 1100" class="arrow"/>
+  <rect x="80" y="1100" width="760" height="105" rx="8" class="whitebox"/>
+  <text x="120" y="1140" class="panel-title" fill="#1b5e20">本地存储</text>
+  <text x="330" y="1140" class="box-text">MinIO：上传文件 / 生成结果</text>
+  <text x="330" y="1175" class="box-text">本地文件：临时文件 / 日志</text>
+
+  <rect x="80" y="1222" width="980" height="60" rx="8" fill="#f1fff1" stroke="#a5d6a7" stroke-width="2"/>
+  <text x="570" y="1258" text-anchor="middle" class="note">特点：部署简单、成本低、适合 MVP；不适合大流量，AI 推理并发有限。</text>
+
+  <!-- middle arrow -->
+  <path d="M1135 715 L1265 715" class="orangeArrow"/>
+  <text x="1200" y="665" text-anchor="middle" class="note" fill="#ef6c00">业务增长</text>
+  <text x="1200" y="700" text-anchor="middle" class="note" fill="#ef6c00">架构演进</text>
+
+  <!-- right panel prod -->
+  <rect x="1265" y="145" width="1090" height="1120" rx="16" class="blue"/>
+  <text x="1810" y="195" text-anchor="middle" class="panel-title" fill="#0d47a1">阶段二：生产级部署（高并发、可扩展、可用性高）</text>
+  <text x="1810" y="230" text-anchor="middle" class="small">支持高并发、多副本、模型服务独立扩展、监控告警和容灾</text>
+
+  <!-- prod top flow -->
+  <text x="1325" y="330" font-size="70" fill="#16233a">♙</text>
+  <text x="1327" y="370" class="box-text">用户</text>
+  <path d="M1380 320 L1445 320" class="greenArrow"/>
+
+  <rect x="1460" y="270" width="220" height="105" rx="8" class="whitebox"/>
+  <text x="1570" y="305" text-anchor="middle" class="box-title">CDN</text>
+  <text x="1570" y="335" text-anchor="middle" class="box-text">静态资源加速</text>
+  <text x="1570" y="363" text-anchor="middle" class="box-text">素材分发</text>
+
+  <path d="M1680 320 L1740 320" class="arrow"/>
+  <rect x="1755" y="270" width="220" height="105" rx="8" class="whitebox"/>
+  <text x="1865" y="305" text-anchor="middle" class="box-title">WAF / 安全防护</text>
+  <text x="1865" y="335" text-anchor="middle" class="box-text">防火墙</text>
+  <text x="1865" y="363" text-anchor="middle" class="box-text">CC 防护</text>
+
+  <path d="M1975 320 L2035 320" class="arrow"/>
+  <rect x="2050" y="270" width="220" height="105" rx="8" class="whitebox"/>
+  <text x="2160" y="305" text-anchor="middle" class="box-title">负载均衡 SLB</text>
+  <text x="2160" y="335" text-anchor="middle" class="box-text">流量分发</text>
+  <text x="2160" y="363" text-anchor="middle" class="box-text">健康检查</text>
+
+  <!-- prod gateway -->
+  <path d="M2160 375 L2160 425" class="arrow"/>
+  <rect x="2075" y="425" width="220" height="160" rx="8" class="whitebox"/>
+  <text x="2185" y="462" text-anchor="middle" class="box-title">API 网关</text>
+  <text x="2185" y="492" text-anchor="middle" class="box-text">路由聚合</text>
+  <text x="2185" y="520" text-anchor="middle" class="box-text">鉴权校验</text>
+  <text x="2185" y="548" text-anchor="middle" class="box-text">限流熔断</text>
+
+  <!-- prod app cluster -->
+  <rect x="1310" y="425" width="710" height="190" rx="12" fill="#f5fbff" stroke="#64b5f6" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="1340" y="462" class="panel-title" fill="#0d47a1">应用服务集群（FastAPI 多副本）</text>
+
+  <rect x="1345" y="485" width="190" height="95" rx="8" class="whitebox"/>
+  <text x="1440" y="515" text-anchor="middle" class="box-title">FastAPI 实例 1</text>
+  <text x="1440" y="545" text-anchor="middle" class="box-text">API / 任务 / SSE</text>
+
+  <rect x="1565" y="485" width="190" height="95" rx="8" class="whitebox"/>
+  <text x="1660" y="515" text-anchor="middle" class="box-title">FastAPI 实例 2</text>
+  <text x="1660" y="545" text-anchor="middle" class="box-text">API / 任务 / SSE</text>
+
+  <text x="1790" y="545" class="box-title">...</text>
+
+  <rect x="1850" y="485" width="145" height="95" rx="8" class="whitebox"/>
+  <text x="1922" y="515" text-anchor="middle" class="box-title">实例 N</text>
+  <text x="1922" y="545" text-anchor="middle" class="box-text">水平扩展</text>
+
+  <path d="M2075 505 L2020 505" class="arrow"/>
+
+  <!-- prod worker queues -->
+  <path d="M1665 615 L1665 665" class="arrow"/>
+  <rect x="1310" y="665" width="710" height="150" rx="12" fill="#fff8ec" stroke="#fb8c00" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="1340" y="702" class="panel-title" fill="#e65100">异步任务集群（Celery Worker 多副本）</text>
+  <rect x="1345" y="728" width="120" height="55" rx="6" class="whitebox"/><text x="1405" y="763" text-anchor="middle" class="box-text">voice_queue</text>
+  <rect x="1480" y="728" width="120" height="55" rx="6" class="whitebox"/><text x="1540" y="763" text-anchor="middle" class="box-text">image_queue</text>
+  <rect x="1615" y="728" width="120" height="55" rx="6" class="whitebox"/><text x="1675" y="763" text-anchor="middle" class="box-text">llm_queue</text>
+  <rect x="1750" y="728" width="120" height="55" rx="6" class="whitebox"/><text x="1810" y="763" text-anchor="middle" class="box-text">export_queue</text>
+  <rect x="1885" y="728" width="110" height="55" rx="6" class="whitebox"/><text x="1940" y="763" text-anchor="middle" class="box-text">default</text>
+
+  <!-- prod model service -->
+  <path d="M1665 815 L1665 865" class="arrow"/>
+  <rect x="1310" y="865" width="710" height="150" rx="12" fill="#f8f0ff" stroke="#8e24aa" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="1340" y="902" class="panel-title" fill="#6a1b9a">模型服务集群（独立部署 / GPU 节点）</text>
+  <rect x="1345" y="928" width="200" height="55" rx="6" class="whitebox"/><text x="1445" y="963" text-anchor="middle" class="box-text">SenseVoiceSmall</text>
+  <rect x="1570" y="928" width="160" height="55" rx="6" class="whitebox"/><text x="1650" y="963" text-anchor="middle" class="box-text">Qwen-VL</text>
+  <rect x="1755" y="928" width="240" height="55" rx="6" class="whitebox"/><text x="1875" y="963" text-anchor="middle" class="box-text">LLM Gateway / DeepSeek / Qwen</text>
+
+  <!-- prod data -->
+  <path d="M1665 1015 L1665 1065" class="arrow"/>
+  <rect x="1310" y="1065" width="710" height="125" rx="12" fill="#fbf7ff" stroke="#ab47bc" stroke-width="2"/>
+  <text x="1340" y="1102" class="panel-title" fill="#6a1b9a">数据层（高可用）</text>
+  <rect x="1345" y="1125" width="130" height="45" rx="6" class="whitebox"/><text x="1410" y="1154" text-anchor="middle" class="box-text">Redis Cluster</text>
+  <rect x="1490" y="1125" width="150" height="45" rx="6" class="whitebox"/><text x="1565" y="1154" text-anchor="middle" class="box-text">PostgreSQL 主从</text>
+  <rect x="1655" y="1125" width="155" height="45" rx="6" class="whitebox"/><text x="1732" y="1154" text-anchor="middle" class="box-text">OSS / MinIO 集群</text>
+  <rect x="1825" y="1125" width="170" height="45" rx="6" class="whitebox"/><text x="1910" y="1154" text-anchor="middle" class="box-text">CDN 加速分发</text>
+
+  <!-- prod infra -->
+  <rect x="1310" y="1210" width="710" height="75" rx="12" fill="#f4f6f8" stroke="#78909c" stroke-width="2"/>
+  <text x="1340" y="1257" class="panel-title" fill="#37474f">基础设施：</text>
+  <text x="1510" y="1257" class="box-text">Kubernetes / HPA 自动伸缩 / ConfigMap / Secret / 服务发现 / CI/CD</text>
+
+  <!-- monitoring -->
+  <rect x="2075" y="655" width="220" height="320" rx="12" class="red"/>
+  <text x="2185" y="695" text-anchor="middle" class="panel-title" fill="#c62828">运维监控</text>
+  <rect x="2110" y="725" width="150" height="50" rx="6" class="whitebox"/><text x="2185" y="758" text-anchor="middle" class="box-text">Prometheus</text>
+  <rect x="2110" y="790" width="150" height="50" rx="6" class="whitebox"/><text x="2185" y="823" text-anchor="middle" class="box-text">Grafana</text>
+  <rect x="2110" y="855" width="150" height="50" rx="6" class="whitebox"/><text x="2185" y="888" text-anchor="middle" class="box-text">ELK / Loki</text>
+  <rect x="2110" y="920" width="150" height="50" rx="6" class="whitebox"/><text x="2185" y="953" text-anchor="middle" class="box-text">AlertManager</text>
+
+  <!-- bottom HA -->
+  <rect x="45" y="1310" width="1800" height="105" rx="12" fill="#fbf7ff" stroke="#8e24aa" stroke-width="2" stroke-dasharray="10 8"/>
+  <text x="945" y="1350" text-anchor="middle" class="panel-title" fill="#6a1b9a">高可用与容灾策略</text>
+  <text x="170" y="1392" class="box-text">多可用区部署</text>
+  <text x="420" y="1392" class="box-text">定期备份：数据库 / 对象存储</text>
+  <text x="760" y="1392" class="box-text">跨区域容灾（可选）</text>
+  <text x="1050" y="1392" class="box-text">健康检查 / 自动重启</text>
+  <text x="1320" y="1392" class="box-text">限流熔断 / 降级策略</text>
+  <text x="1600" y="1392" class="box-text">灰度发布 / 回滚机制</text>
+
+  <!-- legend -->
+  <rect x="1875" y="1310" width="480" height="105" rx="12" fill="#ffffff" stroke="#cfd8dc" stroke-width="2"/>
+  <text x="1905" y="1345" class="box-title">图例说明</text>
+  <line x1="1910" y1="1375" x2="1980" y2="1375" class="greenArrow"/>
+  <text x="1995" y="1382" class="small">用户访问链路</text>
+  <line x1="2150" y1="1375" x2="2220" y2="1375" class="orangeArrow"/>
+  <text x="2235" y="1382" class="small">架构演进方向</text>
+  <rect x="1910" y="1395" width="28" height="16" fill="#eef6ff" stroke="#1976d2"/><text x="1950" y="1409" class="tiny">接入 / 应用层</text>
+  <rect x="2090" y="1395" width="28" height="16" fill="#f8f0ff" stroke="#8e24aa"/><text x="2130" y="1409" class="tiny">AI 模型层</text>
+</svg>

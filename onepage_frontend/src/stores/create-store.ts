@@ -14,8 +14,8 @@ type CreateState = {
 };
 
 export const useCreateStore = create<CreateState>((set) => ({
-  text: "今天去了海边，阳光很温柔，海风微咸。和朋友一起散步、拍照，度过了一个轻松的周末。",
-  mood: "开心",
+  text: "",
+  mood: "平静",
   imageFiles: [],
   imageUrls: [],
   weather: { weather: "晴", temperature: 26 },

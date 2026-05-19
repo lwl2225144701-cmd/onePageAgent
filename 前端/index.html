@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>有一页 OnePage MVP</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand">
+          <div class="brand-title">有一页<br /><span>onepage</span></div>
+          <p>记录生活，发现每一页的美好。</p>
+        </div>
+        <nav class="nav-list">
+          <button class="nav-item active" data-target="home">⌂ 首页</button>
+          <button class="nav-item" data-target="create">✎ 创作</button>
+          <button class="nav-item" data-target="library">▣ 手账本</button>
+          <button class="nav-item" data-target="materials">✿ 素材库</button>
+          <button class="nav-item" data-target="profile">◎ 我的</button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <section class="screen active" id="home">
+          <div class="welcome">
+            <div class="welcome-copy">
+              <div class="logo-mark">有一页<br /><span>onepage</span></div>
+              <p class="tagline">AI 智能排版手账</p>
+              <p>让记录、照片和心情自动生成温柔的一页。</p>
+              <button class="primary-action" data-target="create">开始记录</button>
+              <button class="ghost-action" data-target="library">导入手账本</button>
+            </div>
+            <div class="desk-scene" aria-hidden="true">
+              <div class="paper-stack"></div>
+              <div class="vase">
+                <span></span><span></span><span></span>
+              </div>
+              <div class="cup"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="screen" id="create">
+          <div class="phone-frame input-card">
+            <header class="topbar">
+              <strong>2024.06.01 周六</strong>
+              <span>26°C 晴 ☀</span>
+            </header>
+            <div class="input-tools" role="list">
+              <button class="tool active">文字输入</button>
+              <button class="tool">语音输入</button>
+              <label class="tool upload-tool">
+                拍照上传
+                <input id="photoInput" type="file" accept="image/*" multiple />
+              </label>
+              <button class="tool">选择素材</button>
+            </div>
+            <label class="field-label" for="journalText">今天去了海边，阳光很温柔，海风微咸。</label>
+            <textarea id="journalText" maxlength="300">今天去了海边，阳光很温柔，海风微咸。和朋友一起散步、拍照，度过了一个轻松的周末。</textarea>
+            <div class="counter"><span id="count">48</span>/300</div>
+            <div class="preview-strip" id="imagePreview"></div>
+            <div class="mood-row" aria-label="选择心情">
+              <button class="mood active" data-mood="开心">☺<span>开心</span></button>
+              <button class="mood" data-mood="平静">◡<span>平静</span></button>
+              <button class="mood" data-mood="放松">•‿•<span>放松</span></button>
+              <button class="mood" data-mood="感动">♡<span>感动</span></button>
+              <button class="mood" data-mood="兴奋">✦<span>兴奋</span></button>
+            </div>
+            <button class="primary-action wide" id="generateBtn">生成手账</button>
+          </div>
+        </section>
+
+        <section class="screen" id="loading">
+          <div class="phone-frame loading-card">
+            <h2>AI 正在为你生成手账...</h2>
+            <p id="loadingStep">识别内容与照片</p>
+            <div class="mini-page">
+              <div class="mini-title">海边的<br />治愈时光</div>
+              <div class="mini-photo"></div>
+              <div class="mini-photo tilted"></div>
+              <div class="mini-lines"></div>
+            </div>
+            <div class="progress-line"><span id="progressBar"></span></div>
+            <div class="progress-meta"><span>正在匹配风格、素材和排版...</span><strong id="progressText">0%</strong></div>
+            <button class="ghost-action" data-target="create">取消生成</button>
+          </div>
+        </section>
+
+        <section class="screen" id="editor">
+          <div class="editor-shell">
+            <header class="editor-topbar">
+              <button class="icon-button" data-target="create" title="返回">‹</button>
+              <div class="spacer"></div>
+              <button class="icon-button" title="撤销">↶</button>
+              <button class="icon-button" title="重做">↷</button>
+              <button class="save-button" id="savePage">保存</button>
+            </header>
+            <div class="canvas-wrap">
+              <article class="journal-page" id="journalPage">
+                <div class="botanical top-left"></div>
+                <h1 class="editable selected" data-type="text" style="left: 102px; top: 30px;">海边的<br />治愈时光</h1>
+                <div class="photo-card draggable" data-type="photo" style="left: 46px; top: 120px;">
+                  <img id="mainPhoto" alt="用户上传照片" />
+                </div>
+                <div class="photo-card draggable small rotate" data-type="photo" style="left: 178px; top: 112px;">
+                  <div class="sea-placeholder"></div>
+                </div>
+                <p class="editable note" data-type="text" style="left: 50px; top: 342px;">今天去了海边，阳光很温柔，海风微咸。和朋友一起散步、拍照，度过了一个轻松治愈的周末～</p>
+                <span class="sticker draggable" data-type="sticker" style="left: 244px; top: 294px;">photo</span>
+                <span class="flower-sticker draggable" data-type="sticker" style="left: 268px; top: 80px;">✿</span>
+              </article>
+            </div>
+            <div class="edit-toolbar">
+              <button data-panel="layout">模板</button>
+              <button data-panel="stickers">贴纸</button>
+              <button data-panel="text">文字</button>
+              <button data-panel="font">字体</button>
+              <button data-panel="export">导出</button>
+            </div>
+            <aside class="panel" id="toolPanel" aria-live="polite"></aside>
+          </div>
+        </section>
+
+        <section class="screen" id="library">
+          <div class="library-shell">
+            <header class="page-header">
+              <h2>我的手账本</h2>
+              <button class="small-action" data-target="create">新建</button>
+            </header>
+            <div class="bookshelf" id="bookshelf"></div>
+            <div class="month-grid">
+              <h3>2024 手账本</h3>
+              <div id="monthGrid"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="screen muted-screen" id="materials">
+          <h2>素材库</h2>
+          <p>花朵、便签、相机、小熊、纸飞机等 MVP 贴纸已内置在编辑器的贴纸面板中。</p>
+        </section>
+
+        <section class="screen muted-screen" id="profile">
+          <h2>我的</h2>
+          <p>本地保存草稿、导出权限和隐私设置会随 MVP 迭代逐步接入。</p>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
