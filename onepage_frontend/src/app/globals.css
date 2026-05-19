@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #fbf5ec;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% 14%, rgba(255, 255, 255, 0.9), transparent 34%),
+    linear-gradient(135deg, #fbf5ec 0%, #fffaf4 45%, #f7efe5 100%);
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+.bg-warm-surface {
+  background:
+    radial-gradient(circle at 12% 14%, rgba(255, 255, 255, 0.9), transparent 34%),
+    linear-gradient(135deg, #fbf5ec 0%, #fffaf4 45%, #f7efe5 100%);
+}

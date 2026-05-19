@@ -1,0 +1,122 @@
+export type UnifiedResponse<T> = {
+  success: boolean;
+  error_code?: string | null;
+  message?: string | null;
+  data: T | null;
+  timestamp: string;
+};
+
+export type PaginatedResponse<T> = {
+  data: T[];
+  pagination: {
+    page: number;
+    size: number;
+    total: number;
+    total_pages: number;
+  };
+};
+
+export type UploadResponse = {
+  file_id: string;
+  file_url: string;
+  file_name: string;
+  file_size: number;
+  mime_type: string;
+  created_at?: string | null;
+};
+
+export type TaskResponse = {
+  task_id: string;
+  status: string;
+  progress: number;
+  created_at?: string | null;
+};
+
+export type TaskDetailResponse = TaskResponse & {
+  user_id: string;
+  input_json: Record<string, unknown>;
+  result_json?: LayoutJSON | null;
+  error_message?: string | null;
+};
+
+export type LayoutElement = {
+  type: string;
+  props: Record<string, unknown>;
+  z_index: number;
+};
+
+export type LayoutJSON = {
+  page: {
+    width: number;
+    height: number;
+    background: string;
+  };
+  elements: LayoutElement[];
+  style?: Record<string, unknown>;
+};
+
+export type ElementDTO = {
+  element_type: string;
+  props_json: Record<string, unknown>;
+  z_index: number;
+};
+
+export type PageResponse = {
+  id: string;
+  journal_id: string;
+  user_id: string;
+  title?: string | null;
+  content_text?: string | null;
+  layout_json?: LayoutJSON | null;
+  thumbnail_url?: string | null;
+  weather?: Record<string, unknown> | null;
+  mood?: string | null;
+  page_date?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type JournalResponse = {
+  id: string;
+  user_id: string;
+  name: string;
+  cover_url?: string | null;
+  page_count: number;
+  settings?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type MaterialResponse = {
+  id: string;
+  material_type: string;
+  style_tags?: string[] | null;
+  emotion_tags?: string[] | null;
+  scene_tags?: string[] | null;
+  file_url: string;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+};
+
+export type MaterialGroup = {
+  material_type: string;
+  items: MaterialResponse[];
+};
+
+export type WeatherResponse = {
+  weather: string;
+  temperature?: number;
+  city?: string;
+  [key: string]: unknown;
+};
+
+export type UserPreferenceResponse = {
+  id: string;
+  user_id: string;
+  style_preferences?: Record<string, unknown> | null;
+  font_preferences?: Record<string, unknown> | null;
+  color_preferences?: Record<string, unknown> | null;
+  behavior_stats?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
