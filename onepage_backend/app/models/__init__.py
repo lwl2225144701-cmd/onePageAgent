@@ -6,6 +6,7 @@ from app.models.element import Element
 from app.models.upload_asset import UploadAsset
 from app.models.ai_task import AITask
 from app.models.material import Material
+from app.models.material_user_state import MaterialUserState
 from app.models.user_preference import UserPreference
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "UploadAsset",
     "AITask",
     "Material",
+    "MaterialUserState",
     "UserPreference",
 ]

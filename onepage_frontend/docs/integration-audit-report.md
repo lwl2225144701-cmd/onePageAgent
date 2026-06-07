@@ -1,11 +1,11 @@
 # Frontend-Backend Integration Audit
 
-Generated at: 2026-05-19T12:51:53.506Z
+Generated at: 2026-05-21T06:49:23.458Z
 
 ## Summary
 
-- Backend routes: 19
-- Frontend API routes: 19
+- Backend routes: 22
+- Frontend API routes: 22
 - Missing frontend route coverage: 0
 - Extra frontend routes (not found in backend): 0
 - Potentially unused API functions: 2
@@ -26,6 +26,7 @@ Generated at: 2026-05-19T12:51:53.506Z
 ## Route Matrix
 
 - DELETE /journals/{id} -> covered: yes
+- DELETE /materials/upload/sessions/{id} -> covered: yes
 - DELETE /pages/{id} -> covered: yes
 - GET /ai/tasks/{id} -> covered: yes
 - GET /ai/tasks/{id}/events -> covered: yes
@@ -39,6 +40,8 @@ Generated at: 2026-05-19T12:51:53.506Z
 - POST /ai/tasks -> covered: yes
 - POST /export -> covered: yes
 - POST /journals -> covered: yes
+- POST /materials/upload/sessions -> covered: yes
+- POST /materials/upload/sessions/complete -> covered: yes
 - POST /pages -> covered: yes
 - POST /uploads/audio -> covered: yes
 - POST /uploads/image -> covered: yes

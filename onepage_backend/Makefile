@@ -27,6 +27,9 @@ migration-create:
 seed:
 	docker compose run --rm api python scripts/seed_materials.py
 
+rebuild-materials:
+	docker compose run --rm api python scripts/seed_materials.py
+
 init-infra:
 	docker exec training-postgres psql -U training -c "CREATE DATABASE onepage;" || true
 	docker run --rm --network infra_default minio/mc:latest /bin/sh -c "mc alias set local http://training-minio:9000 minioadmin minioadmin && mc mb --ignore-existing local/onepage-uploads && mc mb --ignore-existing local/onepage-materials"

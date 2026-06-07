@@ -15,7 +15,7 @@ class SSEService:
         self.redis = redis_client
 
     async def publish_progress(self, task_id: str, step: int, step_name: str, status: str, progress: int):
-        logger.info("sse_publish_start", task_id=task_id, step=step, step_name=step_name, status=status, progress=progress)
+        logger.debug("sse_publish_start", task_id=task_id, step=step, step_name=step_name, status=status, progress=progress)
         event_data = json.dumps(
             {
                 "task_id": task_id,
@@ -33,12 +33,12 @@ class SSEService:
             settings.SSE_TTL,
             json.dumps({"status": status, "progress": progress, "step": step, "step_name": step_name}, ensure_ascii=False),
         )
-        logger.info("sse_publish_done", task_id=task_id, step=step, status=status, progress=progress)
+        logger.debug("sse_publish_done", task_id=task_id, step=step, status=status, progress=progress)
 
     async def subscribe(self, task_id: str):
         pubsub = self.redis.pubsub()
         await pubsub.subscribe(f"sse:{task_id}")
-        logger.info("sse_subscribe_start", task_id=task_id)
+        logger.debug("sse_subscribe_start", task_id=task_id)
 
         start_time = asyncio.get_event_loop().time()
 
@@ -58,11 +58,11 @@ class SSEService:
 
                 if message and message.get("type") == "message":
                     data = message["data"]
-                    logger.info("sse_subscribe_message", task_id=task_id, payload_size=len(data))
+                    logger.debug("sse_subscribe_message", task_id=task_id, payload_size=len(data))
                     yield f"data: {data}\n\n"
                     parsed = json.loads(data)
                     if parsed.get("status") in ("completed", "failed"):
-                        logger.info("sse_subscribe_terminal_event", task_id=task_id, status=parsed.get("status"))
+                        logger.debug("sse_subscribe_terminal_event", task_id=task_id, status=parsed.get("status"))
                         break
                 else:
                     yield ": heartbeat\n\n"
@@ -73,4 +73,4 @@ class SSEService:
         finally:
             await pubsub.unsubscribe(f"sse:{task_id}")
             await pubsub.close()
-            logger.info("sse_subscribe_closed", task_id=task_id)
+            logger.debug("sse_subscribe_closed", task_id=task_id)

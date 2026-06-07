@@ -1,75 +1,344 @@
 "use client";
 
-import { Layer, Rect, Stage, Text } from "react-konva";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type Konva from "konva";
+import { Layer, Rect, Stage, Text, Transformer } from "react-konva";
+import { CanvasAssetNode } from "@/modules/editor/components/canvas-asset-node";
+import { CanvasTextNode } from "@/modules/editor/components/canvas-text-node";
+import { clampPositionToPage, clampTransformToPage, estimateTextHeight } from "@/modules/editor/layout-bounds";
 import { useEditorStore } from "@/stores/editor-store";
 
-const scale = 0.28;
+const DEFAULT_SCALE = 0.33;
+const MIN_SCALE = 0.28;
+const MAX_SCALE = 0.39;
 
-export function JournalCanvas() {
-  const { layout, selectedId, select } = useEditorStore();
+export type CanvasExportFormat = "png" | "jpeg";
+
+export type CanvasExportApi = {
+  toDataUrl: (format: CanvasExportFormat) => string | undefined;
+};
+
+function getTagContent(type: string, props: Record<string, unknown>) {
+  if (type === "date_tag") {
+    return String(props.date ?? props.content ?? "");
+  }
+  if (type === "mood_tag") {
+    const icon = String(props.icon ?? "").trim();
+    const mood = String(props.mood ?? props.content ?? "").trim();
+    return [icon, mood].filter(Boolean).join(" ");
+  }
+  if (type === "weather_tag") {
+    const icon = String(props.icon ?? "").trim();
+    const weather = String(props.weather ?? props.content ?? "").trim();
+    return [icon, weather].filter(Boolean).join(" ");
+  }
+  return String(props.content ?? "");
+}
+
+function getTagWidth(content: string, fontSize: number, explicitWidth?: unknown) {
+  const width = Number(explicitWidth ?? 0);
+  if (width > 0) return width;
+  return Math.max(160, Math.min(420, content.length * fontSize * 0.95 + 36));
+}
+
+export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | undefined) => void }) {
+  const { layout, selectedId, select, updateElementPosition, updateElementTransform } = useEditorStore();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<Konva.Stage | null>(null);
+  const transformerRef = useRef<Konva.Transformer | null>(null);
+  const nodeRefs = useRef<Record<string, Konva.Node | null>>({});
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+
+  const toDataUrl = useCallback((format: CanvasExportFormat) => {
+    const stage = stageRef.current;
+    if (!stage) return undefined;
+    return stage.toDataURL({
+      mimeType: format === "jpeg" ? "image/jpeg" : "image/png",
+      quality: 0.95,
+      pixelRatio: 2,
+    });
+  }, []);
+
+  useEffect(() => {
+    onReady?.({ toDataUrl });
+    return () => onReady?.(undefined);
+  }, [onReady, toDataUrl]);
+
+  useEffect(() => {
+    const transformer = transformerRef.current;
+    if (!transformer) return;
+    const node = selectedId ? nodeRefs.current[selectedId] : null;
+    if (node) {
+      transformer.nodes([node]);
+    } else {
+      transformer.nodes([]);
+    }
+    transformer.getLayer()?.batchDraw();
+  }, [selectedId, layout]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateViewport = () => {
+      const rect = container.getBoundingClientRect();
+      setViewport({ width: rect.width, height: rect.height });
+    };
+
+    updateViewport();
+    const resizeObserver = new ResizeObserver(updateViewport);
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  const pageSize = { width: layout.page.width, height: layout.page.height };
+  const scale = useMemo(() => {
+    if (!viewport.width || !viewport.height) return DEFAULT_SCALE;
+
+    const availableWidth = Math.max(0, viewport.width - 10);
+    const availableHeight = Math.max(0, viewport.height - 10);
+    const fittedScale = Math.min(availableWidth / layout.page.width, availableHeight / layout.page.height);
+    return Math.min(MAX_SCALE, Math.max(MIN_SCALE, fittedScale));
+  }, [layout.page.height, layout.page.width, viewport.height, viewport.width]);
 
   return (
-    <Stage width={layout.page.width * scale} height={layout.page.height * scale} scaleX={scale} scaleY={scale}>
-      <Layer>
-        <Rect width={layout.page.width} height={layout.page.height} fill={layout.page.background} cornerRadius={28} />
-        {layout.elements
-          .slice()
-          .sort((a, b) => a.z_index - b.z_index)
-          .map((element, index) => {
-            const props = element.props;
-            const id = String(props.id ?? `${element.type}-${index}`);
-            if (element.type === "text") {
+    <div ref={containerRef} className="grid h-full min-h-0 w-full place-items-center overflow-hidden">
+      <div className="overflow-hidden rounded-[20px] border border-[#eadcc9]/24 bg-[#fffdf8]/50 p-1 shadow-[0_12px_24px_rgba(111,82,51,0.085)]">
+        <Stage ref={stageRef} width={layout.page.width * scale} height={layout.page.height * scale} scaleX={scale} scaleY={scale}>
+          <Layer>
+            <Rect width={layout.page.width} height={layout.page.height} fill={layout.page.background} cornerRadius={28} />
+            {layout.elements
+              .slice()
+              .sort((a, b) => a.z_index - b.z_index)
+              .map((element, index) => {
+                const props = element.props;
+                const id = String(props.id ?? `${element.type}-${index}`);
+                if (element.type === "text") {
+                  const fontSize = Number(props.size ?? 48);
+                  const width = Number(props.w ?? 700);
+                  const frame = clampTransformToPage(
+                    {
+                      x: Number(props.x ?? 0),
+                      y: Number(props.y ?? 0),
+                      width,
+                      height: estimateTextHeight(String(props.content ?? ""), width, fontSize),
+                    },
+                    pageSize,
+                    { width: 160, height: fontSize },
+                  );
+                  return (
+                    <CanvasTextNode
+                      key={id}
+                      registerNode={(node) => {
+                        nodeRefs.current[id] = node;
+                      }}
+                      id={id}
+                      x={frame.x}
+                      y={frame.y}
+                      width={frame.width}
+                      fontSize={fontSize}
+                      content={String(props.content ?? "")}
+                      color={String(props.color ?? "#332b22")}
+                      align={String(props.align ?? "left")}
+                      font={String(props.font ?? layout.style?.font ?? "handwriting")}
+                      selected={selectedId === id}
+                      pageWidth={pageSize.width}
+                      pageHeight={pageSize.height}
+                      onSelect={() => select(id)}
+                      onPositionChange={(x, y) => updateElementPosition(id, x, y)}
+                      onTransformChange={(x, y, width, rotation) =>
+                        updateElementTransform(id, { x, y, w: width, rotation })
+                      }
+                    />
+                  );
+                }
+            if (element.type === "date_tag" || element.type === "mood_tag" || element.type === "weather_tag") {
+              const content = getTagContent(element.type, props);
+              const fontSize = Number(props.size ?? (element.type === "date_tag" ? 28 : 30));
+              const width = getTagWidth(content, fontSize, props.w);
+              const frame = clampTransformToPage(
+                {
+                  x: Number(props.x ?? 0),
+                  y: Number(props.y ?? 0),
+                  width,
+                  height: estimateTextHeight(content, width, fontSize),
+                },
+                pageSize,
+                { width: 120, height: fontSize },
+              );
               return (
-                <Text
+                <CanvasTextNode
                   key={id}
-                  x={Number(props.x ?? 0)}
-                  y={Number(props.y ?? 0)}
-                  width={Number(props.w ?? 700)}
-                  text={String(props.content ?? "")}
-                  fontFamily="Kaiti SC"
-                  fontSize={Number(props.size ?? 48)}
-                  fill={String(props.color ?? "#332b22")}
-                  align={String(props.align ?? "left") as never}
-                  lineHeight={1.45}
-                  draggable
-                  onClick={() => select(id)}
-                  stroke={selectedId === id ? "#75bfe4" : undefined}
-                  strokeWidth={selectedId === id ? 2 : 0}
+                  registerNode={(node) => {
+                    nodeRefs.current[id] = node;
+                  }}
+                  id={id}
+                  x={frame.x}
+                  y={frame.y}
+                  width={frame.width}
+                  fontSize={fontSize}
+                  content={content}
+                  color={String(props.color ?? "#8B7D6B")}
+                  align={String(props.align ?? "left")}
+                  font={String(props.font ?? layout.style?.font ?? "handwriting")}
+                  selected={selectedId === id}
+                  pageWidth={pageSize.width}
+                  pageHeight={pageSize.height}
+                  onSelect={() => select(id)}
+                  onPositionChange={(x, y) => updateElementPosition(id, x, y)}
+                  onTransformChange={(x, y, nextWidth, rotation) =>
+                    updateElementTransform(id, { x, y, w: nextWidth, rotation })
+                  }
                 />
               );
             }
             if (element.type === "image") {
+              const frame = clampTransformToPage(
+                {
+                  x: Number(props.x ?? 0),
+                  y: Number(props.y ?? 0),
+                  width: Number(props.w ?? 280),
+                  height: Number(props.h ?? 360),
+                  rotation: Number(props.rotation ?? 0),
+                },
+                pageSize,
+                { width: 80, height: 80 },
+                {
+                  maxWidth: pageSize.width * 0.72,
+                  maxHeight: pageSize.height * 0.5,
+                },
+              );
               return (
-                <Rect
+                <CanvasAssetNode
                   key={id}
-                  x={Number(props.x ?? 0)}
-                  y={Number(props.y ?? 0)}
-                  width={Number(props.w ?? 280)}
-                  height={Number(props.h ?? 360)}
-                  fill="#ffffff"
-                  stroke={selectedId === id ? "#75bfe4" : "#eadbca"}
-                  strokeWidth={selectedId === id ? 8 : 0}
-                  shadowBlur={18}
-                  rotation={Number(props.rotation ?? 0)}
-                  draggable
-                  onClick={() => select(id)}
+                  registerNode={(node) => {
+                    nodeRefs.current[id] = node;
+                  }}
+                  id={id}
+                  url={typeof props.url === "string" ? props.url : undefined}
+                  pageWidth={pageSize.width}
+                  pageHeight={pageSize.height}
+                  x={frame.x}
+                  y={frame.y}
+                  width={frame.width}
+                  height={frame.height}
+                  rotation={frame.rotation ?? 0}
+                  opacity={Number(props.opacity ?? 1)}
+                  selected={selectedId === id}
+                  onSelect={() => select(id)}
+                  onPositionChange={(x, y) => updateElementPosition(id, x, y)}
+                  onTransformChange={(x, y, width, height, rotation) =>
+                    updateElementTransform(
+                      id,
+                      clampTransformToPage(
+                        { x, y, width, height, rotation },
+                        pageSize,
+                        { width: 80, height: 80 },
+                        {
+                          maxWidth: pageSize.width * 0.72,
+                          maxHeight: pageSize.height * 0.5,
+                        },
+                      ),
+                    )
+                  }
                 />
               );
             }
+            if (element.type === "sticker" || element.type === "decoration") {
+              if (typeof props.url === "string" && props.url) {
+                const frame = clampTransformToPage(
+                  {
+                    x: Number(props.x ?? 0),
+                    y: Number(props.y ?? 0),
+                    width: Number(props.w ?? 180),
+                    height: Number(props.h ?? 180),
+                    rotation: Number(props.rotation ?? 0),
+                  },
+                  pageSize,
+                  { width: 48, height: 48 },
+                  {
+                    maxWidth: pageSize.width * 0.38,
+                    maxHeight: pageSize.height * 0.28,
+                  },
+                );
+                return (
+                  <CanvasAssetNode
+                    key={id}
+                    id={id}
+                    url={props.url}
+                    pageWidth={pageSize.width}
+                    pageHeight={pageSize.height}
+                    x={frame.x}
+                    y={frame.y}
+                    width={frame.width}
+                    height={frame.height}
+                    rotation={frame.rotation ?? 0}
+                    opacity={Number(props.opacity ?? 1)}
+                    selected={selectedId === id}
+                    onSelect={() => select(id)}
+                    registerNode={(node) => {
+                      nodeRefs.current[id] = node;
+                    }}
+                    onPositionChange={(x, y) => updateElementPosition(id, x, y)}
+                    onTransformChange={(x, y, width, height, rotation) =>
+                      updateElementTransform(
+                        id,
+                        clampTransformToPage(
+                          { x, y, width, height, rotation },
+                          pageSize,
+                          { width: 48, height: 48 },
+                          {
+                            maxWidth: pageSize.width * 0.38,
+                            maxHeight: pageSize.height * 0.28,
+                          },
+                        ),
+                      )
+                    }
+                  />
+                );
+              }
+            }
+            const fontSize = Number(props.size ?? 72);
+            const fallbackWidth = fontSize;
+            const fallbackHeight = fontSize;
             return (
               <Text
                 key={id}
-                x={Number(props.x ?? 0)}
-                y={Number(props.y ?? 0)}
+                x={clampPositionToPage(
+                  { x: Number(props.x ?? 0), y: Number(props.y ?? 0) },
+                  { width: fallbackWidth, height: fallbackHeight },
+                  pageSize,
+                ).x}
+                y={clampPositionToPage(
+                  { x: Number(props.x ?? 0), y: Number(props.y ?? 0) },
+                  { width: fallbackWidth, height: fallbackHeight },
+                  pageSize,
+                ).y}
                 text={String(props.content ?? "✿")}
-                fontSize={Number(props.size ?? 72)}
+                fontSize={fontSize}
                 fill={String(props.color ?? "#c99566")}
                 draggable
+                dragBoundFunc={(position) => clampPositionToPage(position, { width: fallbackWidth, height: fallbackHeight }, pageSize)}
                 onClick={() => select(id)}
+                onDragEnd={(event) => {
+                  const next = clampPositionToPage({ x: event.target.x(), y: event.target.y() }, { width: fallbackWidth, height: fallbackHeight }, pageSize);
+                  updateElementPosition(id, next.x, next.y);
+                }}
               />
             );
-          })}
-      </Layer>
-    </Stage>
+            })}
+            <Transformer
+              ref={transformerRef}
+              rotateEnabled
+              enabledAnchors={["top-left", "top-right", "bottom-left", "bottom-right"]}
+              borderStroke="#c99a66"
+              anchorStroke="#c99a66"
+              anchorFill="#fffaf4"
+              anchorSize={8}
+            />
+          </Layer>
+        </Stage>
+      </div>
+    </div>
   );
 }

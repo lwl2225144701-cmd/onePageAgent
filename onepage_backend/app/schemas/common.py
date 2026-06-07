@@ -30,6 +30,5 @@ class PaginationMeta(BaseModel):
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
-    success: bool = True
     data: list[T]
     pagination: PaginationMeta

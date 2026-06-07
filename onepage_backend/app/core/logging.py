@@ -7,7 +7,14 @@ def setup_logging(debug: bool = False):
     logging.basicConfig(
         level=level,
         format="%(message)s",
+        force=True,
     )
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.dialects").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.orm").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("celery").setLevel(logging.INFO)
     structlog.configure(
         processors=[
             structlog.stdlib.filter_by_level,

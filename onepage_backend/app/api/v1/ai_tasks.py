@@ -23,7 +23,7 @@ async def create_ai_task(
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    logger.info("api_ai_task_create_request", user_id=user_id, body_type=type(body).__name__)
+    logger.debug("api_ai_task_create_request", user_id=user_id, body_type=type(body).__name__)
     svc = AITaskService(db, redis)
     input_json = body.input_json if isinstance(body, CreateTaskRequest) else body.get("input_json", body)
     task = await svc.create_task(user_id, input_json)
@@ -52,13 +52,13 @@ async def get_task(
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    logger.info("api_ai_task_get_request", task_id=task_id)
+    logger.debug("api_ai_task_get_request", task_id=task_id)
     svc = AITaskService(db, redis)
     data = await svc.get_task(task_id)
     if not data:
         logger.warning("api_ai_task_not_found", task_id=task_id)
         raise NotFoundException("Task not found")
-    logger.info("api_ai_task_get_success", task_id=task_id, status=data.get("status"), progress=data.get("progress"))
+    logger.debug("api_ai_task_get_success", task_id=task_id, status=data.get("status"), progress=data.get("progress"))
     return UnifiedResponse(data=TaskDetailResponse(**data))
 
 
@@ -67,7 +67,7 @@ async def stream_task_events(
     task_id: str,
     redis: aioredis.Redis = Depends(get_redis),
 ):
-    logger.info("api_ai_task_events_subscribe", task_id=task_id)
+    logger.debug("api_ai_task_events_subscribe", task_id=task_id)
     sse = SSEService(redis)
 
     # Check task exists first

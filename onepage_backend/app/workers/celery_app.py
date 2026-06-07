@@ -19,7 +19,11 @@ app.conf.update(
     result_serializer="json",
     accept_content=["json"],
     task_acks_late=True,
+    task_track_started=True,
     worker_prefetch_multiplier=1,
+    worker_hijack_root_logger=False,
+    worker_redirect_stdouts=True,
+    worker_redirect_stdouts_level="INFO",
     task_soft_time_limit=settings.CELERY_TASK_SOFT_TIME_LIMIT,
     task_time_limit=settings.CELERY_TASK_TIME_LIMIT,
     task_routes={

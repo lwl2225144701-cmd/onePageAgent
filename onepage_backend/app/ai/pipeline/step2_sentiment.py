@@ -1,6 +1,8 @@
 import json
 import structlog
 
+from app.ai.pipeline.llm_json import run_json_llm_step
+
 logger = structlog.get_logger(__name__)
 
 
@@ -12,8 +14,8 @@ async def run_sentiment_analysis(ctx: dict) -> dict:
         from app.ai.gateway.deepseek_client import DeepSeekClient
         from app.ai.prompts.sentiment_analysis import SYSTEM_PROMPT, USER_TEMPLATE
 
-        client = DeepSeekClient()
-        resp = await client.chat(
+        return await run_json_llm_step(
+            client_factory=DeepSeekClient,
             messages=[{
                 "role": "user",
                 "content": USER_TEMPLATE.format(
@@ -24,12 +26,10 @@ async def run_sentiment_analysis(ctx: dict) -> dict:
             }],
             system_prompt=SYSTEM_PROMPT,
             temperature=0.3,
+            max_tokens=4096,
             response_format={"type": "json_object"},
+            default={},
         )
-        result_str = resp.get("choices", [{}])[0].get("message", {}).get("content", "{}")
-        result = json.loads(result_str) if isinstance(result_str, str) else result_str
-        await client.close()
-        return result
     except Exception as e:
         logger.warning("step2_sentiment_failed", error=str(e))
         # Fallback to user mood or neutral

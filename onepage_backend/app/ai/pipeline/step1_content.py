@@ -1,5 +1,7 @@
 import structlog
 
+from app.ai.pipeline.llm_json import run_json_llm_step
+
 logger = structlog.get_logger(__name__)
 
 
@@ -20,17 +22,15 @@ async def run_content_understanding(ctx: dict) -> dict:
             from app.ai.gateway.deepseek_client import DeepSeekClient
             from app.ai.prompts.content_understanding import SYSTEM_PROMPT, USER_TEMPLATE
 
-            client = DeepSeekClient()
-            resp = await client.chat(
+            result["text_analysis"] = await run_json_llm_step(
+                client_factory=DeepSeekClient,
                 messages=[{"role": "user", "content": USER_TEMPLATE.format(content=text)}],
                 system_prompt=SYSTEM_PROMPT,
                 temperature=0.3,
+                max_tokens=4096,
                 response_format={"type": "json_object"},
+                default={},
             )
-            content_str = resp.get("choices", [{}])[0].get("message", {}).get("content", "{}")
-            import json
-            result["text_analysis"] = json.loads(content_str) if isinstance(content_str, str) else content_str
-            await client.close()
         except Exception as e:
             logger.warning("step1_text_failed", error=str(e))
             result["text_analysis"] = {"summary": text[:200]}

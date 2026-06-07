@@ -50,7 +50,3 @@ class JournalService:
         journal = await self.get_by_id(journal_id, user_id)
         await self.db.delete(journal)
         await self.db.flush()
-
-
-# Add relationship on Journal for eager loading
-Journal.pages = None  # Will be set up properly via relationship

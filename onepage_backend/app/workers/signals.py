@@ -1,7 +1,8 @@
-import asyncio
-
 import structlog
 from celery.signals import task_prerun, task_postrun, task_failure, worker_process_init, worker_shutdown
+
+from app.config import settings
+from app.core.logging import setup_logging
 
 logger = structlog.get_logger(__name__)
 
@@ -23,11 +24,12 @@ def on_task_failure(sender, task_id, exception, traceback, **extra):
 
 @worker_process_init.connect
 def on_worker_process_init(**_extra):
+    setup_logging(settings.DEBUG)
     logger.info("worker_process_init")
     try:
         from app.core.database import engine
 
-        asyncio.run(engine.dispose())
+        engine.sync_engine.dispose(close=False)
         logger.info("worker_db_engine_disposed")
     except Exception as exc:
         logger.warning("worker_db_engine_dispose_failed", error=str(exc))
@@ -36,10 +38,3 @@ def on_worker_process_init(**_extra):
 @worker_shutdown.connect
 def on_worker_shutdown(**_extra):
     logger.info("worker_shutdown")
-    try:
-        from app.core.database import engine
-
-        asyncio.run(engine.dispose())
-        logger.info("worker_db_engine_disposed_on_shutdown")
-    except Exception as exc:
-        logger.warning("worker_db_engine_dispose_on_shutdown_failed", error=str(exc))

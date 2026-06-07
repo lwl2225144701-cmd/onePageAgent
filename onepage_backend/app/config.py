@@ -8,10 +8,11 @@ class Settings(BaseSettings):
     APP_NAME: str = "onepage-api"
     DEBUG: bool = False
     API_V1_PREFIX: str = "/api"
+    PUBLIC_API_BASE_URL: str = "http://127.0.0.1:8000/api"
     SECRET_KEY: str = "change-me"
     ANONYMOUS_USER_HEADER: str = "X-Anonymous-User-Id"
     MAX_UPLOAD_SIZE_MB: int = 20
-    ALLOWED_IMAGE_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp"]
+    ALLOWED_IMAGE_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp", "image/svg+xml"]
     ALLOWED_AUDIO_TYPES: list[str] = ["audio/wav", "audio/mp3", "audio/m4a", "audio/webm"]
 
     # ── Database ──

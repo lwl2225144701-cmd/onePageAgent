@@ -139,10 +139,13 @@ class LayoutValidator:
             if box is None:
                 continue
             left, top, right, bottom = box
-            for prev_index, prev_box in boxes:
+            current_background = self._is_background_like(el, box)
+            for prev_index, prev_box, prev_background in boxes:
+                if current_background or prev_background:
+                    continue
                 if not (right <= prev_box[0] or left >= prev_box[2] or bottom <= prev_box[1] or top >= prev_box[3]):
                     return [f"elements[{index}] overlaps elements[{prev_index}]"]
-            boxes.append((index, box))
+            boxes.append((index, box, current_background))
         return []
 
     def _element_box(self, el: dict) -> tuple[float, float, float, float] | None:
@@ -190,6 +193,14 @@ class LayoutValidator:
             lines = max(1, (len(content) // chars_per_line) + 1)
             return min(width, 1080 - 80), max(72, int(lines * size * 1.55))
         return 160, 120
+
+    def _is_background_like(self, el: dict, box: tuple[float, float, float, float]) -> bool:
+        if el.get("type") != "image":
+            return False
+        left, top, right, bottom = box
+        width = right - left
+        height = bottom - top
+        return left <= 0 and top <= 0 and width >= 900 and height >= 500
 
     def _safe_int(self, value, default: int) -> int:
         try:

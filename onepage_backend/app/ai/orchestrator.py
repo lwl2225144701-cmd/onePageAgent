@@ -12,6 +12,7 @@ class AIOrchestrator:
 
     async def run(self, task_id: str, user_id: str, input_json: dict) -> dict:
         logger.info("orchestrator_run_start", task_id=task_id, user_id=user_id)
+        print(f"ORCH_START task_id={task_id}", flush=True)
         ctx = {
             "task_id": task_id,
             "user_id": user_id,
@@ -24,50 +25,63 @@ class AIOrchestrator:
             # Step 1: Content Understanding
             await self._publish_progress(task_id, 1, "内容理解", "processing", 5)
             logger.info("orchestrator_step_start", task_id=task_id, step=1, step_name="内容理解")
+            self._print_step(task_id, 1, "内容理解", "START")
             ctx["step1"] = await self._run_step1(ctx)
             await self._publish_progress(task_id, 1, "内容理解", "completed", 16)
             logger.info("orchestrator_step_done", task_id=task_id, step=1, step_name="内容理解")
+            self._print_step(task_id, 1, "内容理解", "DONE")
 
             # Step 2: Sentiment Analysis
             await self._publish_progress(task_id, 2, "情感分析", "processing", 20)
             logger.info("orchestrator_step_start", task_id=task_id, step=2, step_name="情感分析")
+            self._print_step(task_id, 2, "情感分析", "START")
             ctx["step2"] = await self._run_step2(ctx)
             await self._publish_progress(task_id, 2, "情感分析", "completed", 32)
             logger.info("orchestrator_step_done", task_id=task_id, step=2, step_name="情感分析")
+            self._print_step(task_id, 2, "情感分析", "DONE")
 
             # Step 3: Style Inference
             await self._publish_progress(task_id, 3, "风格推断", "processing", 36)
             logger.info("orchestrator_step_start", task_id=task_id, step=3, step_name="风格推断")
+            self._print_step(task_id, 3, "风格推断", "START")
             ctx["step3"] = await self._run_step3(ctx)
             await self._publish_progress(task_id, 3, "风格推断", "completed", 48)
             logger.info("orchestrator_step_done", task_id=task_id, step=3, step_name="风格推断")
+            self._print_step(task_id, 3, "风格推断", "DONE")
 
             # Step 4: Material Matching
             await self._publish_progress(task_id, 4, "素材匹配", "processing", 52)
             logger.info("orchestrator_step_start", task_id=task_id, step=4, step_name="素材匹配")
+            self._print_step(task_id, 4, "素材匹配", "START")
             ctx["step4"] = await self._run_step4(ctx)
             await self._publish_progress(task_id, 4, "素材匹配", "completed", 64)
             logger.info("orchestrator_step_done", task_id=task_id, step=4, step_name="素材匹配")
+            self._print_step(task_id, 4, "素材匹配", "DONE")
 
             # Step 5: Layout Generation
             await self._publish_progress(task_id, 5, "排版生成", "processing", 68)
             logger.info("orchestrator_step_start", task_id=task_id, step=5, step_name="排版生成")
+            self._print_step(task_id, 5, "排版生成", "START")
             ctx["step5"] = await self._run_step5(ctx)
             await self._publish_progress(task_id, 5, "排版生成", "completed", 80)
             logger.info("orchestrator_step_done", task_id=task_id, step=5, step_name="排版生成")
+            self._print_step(task_id, 5, "排版生成", "DONE")
 
             # Step 6: Validate & Repair
             await self._publish_progress(task_id, 6, "JSON校验与修复", "processing", 84)
             logger.info("orchestrator_step_start", task_id=task_id, step=6, step_name="JSON校验与修复")
+            self._print_step(task_id, 6, "JSON校验与修复", "START")
             final_layout = await self._run_step6(ctx)
             await self._publish_progress(task_id, 6, "JSON校验与修复", "completed", 95)
             logger.info("orchestrator_step_done", task_id=task_id, step=6, step_name="JSON校验与修复")
+            self._print_step(task_id, 6, "JSON校验与修复", "DONE")
 
             # Final save to DB
-            await self._save_result(task_id, final_layout)
+            await self._save_result(task_id, user_id, final_layout, ctx.get("step4"))
 
             await self._publish_progress(task_id, 0, "完成", "completed", 100)
             logger.info("orchestrator_run_done", task_id=task_id)
+            print(f"ORCH_DONE task_id={task_id}", flush=True)
             return final_layout
 
         except Exception as e:
@@ -77,9 +91,25 @@ class AIOrchestrator:
             await self._publish_progress(task_id, 0, "出错", "failed", 0)
             return fallback
 
+    def _print_step(self, task_id: str, step: int, step_name: str, status: str) -> None:
+        print(f"STEP {step} {status} task_id={task_id} name={step_name}", flush=True)
+
     def run_sync(self, task_id: str, user_id: str, input_json: dict) -> dict:
         """Synchronous wrapper for Celery tasks."""
-        return asyncio.run(self.run(task_id, user_id, input_json))
+        async def runner() -> dict:
+            try:
+                return await self.run(task_id, user_id, input_json)
+            finally:
+                # Celery calls this through asyncio.run(); asyncpg connections are loop-bound.
+                # Dispose the pool before the loop closes so the next task does not reuse stale connections.
+                try:
+                    from app.core.database import engine
+
+                    await engine.dispose()
+                except Exception as exc:
+                    logger.warning("orchestrator_db_engine_dispose_failed", task_id=task_id, error=str(exc))
+
+        return asyncio.run(runner())
 
     async def _run_step1(self, ctx):
         from app.ai.pipeline.step1_content import run_content_understanding
@@ -114,7 +144,7 @@ class AIOrchestrator:
             r = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
             sse = SSEService(r)
             await sse.publish_progress(task_id, step, step_name, status, progress)
-            logger.info(
+            logger.debug(
                 "orchestrator_progress_published",
                 task_id=task_id,
                 step=step,
@@ -135,20 +165,61 @@ class AIOrchestrator:
             )
             pass  # SSE is best-effort
 
-    async def _save_result(self, task_id: str, layout: dict):
+    async def _save_result(self, task_id: str, user_id: str, layout: dict, step4: dict | None):
         from sqlalchemy import update
         from app.core.database import async_session_factory
         from app.models.ai_task import AITask
+        from app.services.material_service import MaterialService
 
         async with async_session_factory() as db:
+            material_service = MaterialService(db)
             stmt = (
                 update(AITask)
                 .where(AITask.task_id == task_id)
                 .values(status="completed", progress=100, result_json=layout)
             )
             await db.execute(stmt)
+            used_urls = material_service.extract_material_urls_from_layout(layout)
+            used_count = await material_service.mark_used_by_urls(user_id=user_id, urls=used_urls)
             await db.commit()
-        logger.info("orchestrator_result_saved", task_id=task_id)
+        logger.info("orchestrator_result_saved", task_id=task_id, used_material_count=used_count)
+        print(
+            f"SELECTED_MATERIALS task_id={task_id} items={json.dumps(self._summarize_selected_materials(used_urls, step4), ensure_ascii=False)}",
+            flush=True,
+        )
+
+    def _summarize_selected_materials(self, used_urls: list[str], step4: dict | None) -> list[dict]:
+        if not used_urls or not isinstance(step4, dict):
+            return []
+
+        candidates_by_url: dict[str, dict] = {}
+        for group in step4.get("groups", []):
+            if not isinstance(group, dict):
+                continue
+            for item in group.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                for key in ("file_url", "raw_file_url", "preview_url"):
+                    url = str(item.get(key) or "").strip()
+                    if url:
+                        candidates_by_url[url] = item
+
+        selected: list[dict] = []
+        for url in used_urls:
+            item = candidates_by_url.get(url)
+            if item is None:
+                continue
+            selected.append(
+                {
+                    "material_id": item.get("material_id"),
+                    "type": item.get("material_type"),
+                    "name": item.get("display_name") or item.get("origin_path"),
+                    "category": item.get("category"),
+                    "preview_url": item.get("preview_url"),
+                    "file_url": item.get("file_url"),
+                }
+            )
+        return selected
 
     async def _save_error(self, task_id: str, error: str):
         from sqlalchemy import update

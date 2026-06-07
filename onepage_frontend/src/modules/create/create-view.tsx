@@ -1,6 +1,7 @@
 "use client";
 
-import { Camera, Flower2, Mic, Type } from "lucide-react";
+import Image from "next/image";
+import { Camera, Flower2, MapPin, Mic, Sun, Type } from "lucide-react";
 import { createAiTask } from "@/api/ai-tasks.api";
 import { uploadAudio, uploadImage } from "@/api/uploads.api";
 import { getWeather } from "@/api/weather.api";
@@ -9,7 +10,26 @@ import { useCreateStore } from "@/stores/create-store";
 import { Button } from "@/shared/ui/button";
 import { useEffect } from "react";
 
-const moods = ["开心", "平静", "放松", "感动", "兴奋"];
+const moods = [
+  { label: "开心", emoji: "😊" },
+  { label: "平静", emoji: "😌" },
+  { label: "放松", emoji: "😮‍💨" },
+  { label: "感动", emoji: "🥹" },
+  { label: "兴奋", emoji: "🤩" },
+  { label: "甜蜜", emoji: "🥰" },
+  { label: "发呆", emoji: "🤔" },
+  { label: "困倦", emoji: "😴" },
+  { label: "低落", emoji: "😔" },
+  { label: "难过", emoji: "😢" },
+  { label: "焦虑", emoji: "😟" },
+  { label: "愤怒", emoji: "😡" },
+];
+
+const journalPaperStyle = {
+  backgroundImage:
+    "linear-gradient(180deg, rgba(255,252,247,0.88), rgba(250,242,231,0.74)), repeating-linear-gradient(180deg, transparent 0, transparent 31px, rgba(183,151,119,0.13) 32px), radial-gradient(rgba(128,91,58,0.08) 0.5px, transparent 0.7px)",
+  backgroundSize: "auto, auto, 18px 18px",
+} satisfies React.CSSProperties;
 
 export function CreateView({ onGenerated }: { onGenerated: () => void }) {
   const { text, mood, imageFiles, weather, setText, setMood, setImageFiles, setImageUrls, setWeather } = useCreateStore();
@@ -51,17 +71,29 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
   }
 
   return (
-    <section className="grid min-h-[calc(100vh-72px)] place-items-center">
-      <div className="min-h-[720px] w-full max-w-[390px] rounded-[18px] border border-line bg-paper/95 p-6 shadow-journal">
-        <header className="flex items-center justify-between">
-          <strong>2024.06.01 周六</strong>
-          <span className="text-sm text-muted">26°C 晴 ☀</span>
+    <section className="grid min-h-[calc(100dvh-112px)] place-items-center max-md:h-[calc(100dvh-120px-env(safe-area-inset-bottom))] max-md:min-h-0 max-md:items-stretch">
+      <div className="flex w-full max-w-[390px] flex-col overflow-hidden rounded-[20px] border border-line bg-[#fffaf4]/95 p-5 shadow-journal [scrollbar-width:none] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden max-md:h-full max-md:min-h-0 max-md:max-w-none max-md:overflow-y-auto max-md:overscroll-contain">
+        <header className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-left text-[22px] font-semibold leading-none">2024.06.01 周六</div>
+            <div className="flex items-center gap-2 text-sm text-muted">
+              <span>26°C</span>
+              <span>晴</span>
+              <Sun size={16} className="text-[#e19a35]" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted">
+            <MapPin size={14} />
+            <span>上海市 静安区</span>
+          </div>
         </header>
-        <div className="my-7 grid grid-cols-4 gap-2">
+        <div className="mb-5 mt-6 grid grid-cols-4 gap-3.5 max-md:mb-5 max-md:mt-7">
           <Tool icon={Type} label="文字输入" active />
-          <label className="grid min-h-14 place-items-center rounded-lg border border-line bg-[#f4eadc] px-2 text-center text-xs">
-            <Mic size={18} />
-            语音输入
+          <label className="grid place-items-center gap-2 text-center text-xs font-medium text-[#7d7064]">
+            <span className="grid h-10 w-[52px] place-items-center rounded-full border border-[#eadcc9]/45 bg-[#fbf5ed]/72 text-[#7d7064] shadow-[0_4px_10px_rgba(111,82,51,0.035)]">
+              <Mic size={18} strokeWidth={1.8} />
+            </span>
+            <span className="whitespace-nowrap">语音输入</span>
             <input
               className="hidden"
               type="file"
@@ -77,9 +109,11 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
               }}
             />
           </label>
-          <label className="grid min-h-14 place-items-center rounded-lg border border-line bg-[#f4eadc] px-2 text-center text-xs">
-            <Camera size={18} />
-            拍照上传
+          <label className="grid place-items-center gap-2 text-center text-xs font-medium text-[#7d7064]">
+            <span className="grid h-10 w-[52px] place-items-center rounded-full border border-[#eadcc9]/45 bg-[#fbf5ed]/72 text-[#7d7064] shadow-[0_4px_10px_rgba(111,82,51,0.035)]">
+              <Camera size={18} strokeWidth={1.8} />
+            </span>
+            <span className="whitespace-nowrap">拍照上传</span>
             <input
               className="hidden"
               type="file"
@@ -90,40 +124,61 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
           </label>
           <Tool icon={Flower2} label="选择素材" />
         </div>
-        <label className="mb-2 block font-semibold">写下今天想被记住的内容</label>
-        <textarea
-          className="min-h-40 w-full resize-none rounded-lg border border-line bg-white/75 p-4 leading-8 outline-none"
-          maxLength={300}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-        <div className="-mt-7 pr-3 text-right text-xs text-muted">{text.length}/300</div>
-        <div className="my-6 flex min-h-20 gap-2">
-          {imageFiles.map((file) => (
-            <img
-              key={`${file.name}-${file.lastModified}`}
-              className="h-[72px] w-[72px] rounded-lg border-[3px] border-white object-cover shadow"
-              src={URL.createObjectURL(file)}
-              alt="上传预览"
-            />
-          ))}
+        <div className="relative rounded-[18px] border border-[#eadcc9]/58 bg-[#fffaf0]/76 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.76),0_8px_18px_rgba(111,82,51,0.045)]" style={journalPaperStyle}>
+          <textarea
+            className="min-h-[168px] w-full resize-none bg-transparent text-[15px] leading-8 text-[#4f3d2c] outline-none placeholder:text-[#a99b8e]/82 max-md:min-h-[198px]"
+            maxLength={300}
+            value={text}
+            placeholder={"今天去了海边，\n阳光照在脸颊，海浪很轻很轻，\n和朋友一起散步、拍照，\n度过了一个很治愈的周末~"}
+            onChange={(event) => setText(event.target.value)}
+          />
+          <div className="absolute bottom-3 right-4 text-[11px] text-[#9a8a78]/70">{text.length}/300</div>
         </div>
-        <div className="grid grid-cols-5 gap-2">
-          {moods.map((item) => (
-            <button
-              key={item}
-              className={`grid min-h-16 place-items-center rounded-lg text-sm ${mood === item ? "bg-[#f1e4d3] text-ink" : "text-muted"}`}
-              onClick={() => setMood(item)}
-            >
-              <span>♡</span>
-              {item}
-            </button>
-          ))}
+        {imageFiles.length ? (
+          <div className="mt-4 flex gap-2">
+            {imageFiles.map((file) => (
+              <Image
+                key={`${file.name}-${file.lastModified}`}
+                className="h-[72px] w-[72px] rounded-lg border-[3px] border-white object-cover shadow"
+                src={URL.createObjectURL(file)}
+                alt="上传预览"
+                width={72}
+                height={72}
+                unoptimized
+              />
+            ))}
+          </div>
+        ) : null}
+        <div className="mb-2.5 mt-5 flex items-baseline gap-2">
+          <span className="text-sm font-semibold text-[#4f3d2c]">选择心情</span>
+          <span className="text-[11px] text-[#9a8a78]/72">今天是什么感觉？</span>
         </div>
-        <Button className="mt-8 w-full" onClick={handleGenerate} disabled={!text.trim()}>
-          生成手账
+        <div className="relative min-w-0 overflow-hidden">
+          <div className="flex snap-x gap-2 overflow-x-auto pb-1 [overscroll-behavior-x:contain] [scrollbar-width:none] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
+            {moods.map((item) => (
+              <button
+                key={item.label}
+                className={`grid min-h-[66px] w-[54px] shrink-0 snap-start place-items-center rounded-[16px] text-[11px] transition ${mood === item.label ? "text-[#4f3d2c]" : "text-[#8a7a68]"}`}
+                onClick={() => setMood(item.label)}
+              >
+                <span
+                  className={`grid h-10 w-10 place-items-center rounded-full text-[22px] leading-none transition ${
+                    mood === item.label
+                      ? "-rotate-3 border border-[#d8b994]/70 bg-[#f1dcc5] shadow-[0_6px_14px_rgba(168,126,92,0.14),inset_0_1px_0_rgba(255,255,255,0.65)]"
+                      : "border border-[#eadcc9]/32 bg-[#fbf5ed]/76 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]"
+                  }`}
+                >
+                  {item.emoji}
+                </span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="pointer-events-none absolute bottom-1 right-0 top-0 w-5 bg-gradient-to-l from-[#fffaf4]/78 to-transparent" />
+        </div>
+        <Button className="mt-5 min-h-12 w-full rounded-full bg-gradient-to-b from-[#c8a37e] to-[#ab7b55] text-base font-semibold shadow-[0_10px_22px_rgba(139,93,52,0.18)] max-md:min-h-14" onClick={handleGenerate} disabled={!text.trim()}>
+          生成我的一页
         </Button>
-        <p className="mt-2 text-center text-xs text-muted">天气接口：{String(weather.weather ?? "晴")} · AI 任务将携带 weather 字段</p>
       </div>
     </section>
   );
@@ -131,9 +186,15 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
 
 function Tool({ icon: Icon, label, active }: { icon: React.ComponentType<{ size?: number }>; label: string; active?: boolean }) {
   return (
-    <button className={`grid min-h-14 place-items-center rounded-lg border border-line px-2 text-xs ${active ? "bg-[#e6d7c3]" : "bg-[#f4eadc]"}`}>
-      <Icon size={18} />
-      {label}
+    <button className={`grid place-items-center gap-2 text-center text-xs font-medium ${active ? "text-[#4f3d2c]" : "text-[#7d7064]"}`}>
+      <span
+        className={`grid h-10 w-[52px] place-items-center rounded-full border shadow-[0_4px_10px_rgba(111,82,51,0.035)] ${
+          active ? "border-[#d9bfa2]/70 bg-[#efe2d2] text-[#5d4530]" : "border-[#eadcc9]/45 bg-[#fbf5ed]/72 text-[#7d7064]"
+        }`}
+      >
+        <Icon size={18} />
+      </span>
+      <span className="whitespace-nowrap">{label}</span>
     </button>
   );
 }

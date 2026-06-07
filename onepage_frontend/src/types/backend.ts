@@ -94,13 +94,38 @@ export type MaterialResponse = {
   emotion_tags?: string[] | null;
   scene_tags?: string[] | null;
   file_url: string;
-  metadata?: Record<string, unknown> | null;
+  preview_url?: string | null;
+  raw_file_url?: string | null;
+  mime_type?: string | null;
+  meta_info?: Record<string, unknown> | null;
+  is_favorite: boolean;
+  last_used_at?: string | null;
   created_at?: string | null;
 };
 
 export type MaterialGroup = {
   material_type: string;
   items: MaterialResponse[];
+};
+
+export type MaterialUploadSessionCreateInput = {
+  file_name: string;
+  file_size: number;
+  mime_type: string;
+  material_type: "sticker" | "background" | "decoration";
+  category: string;
+  tags: string[];
+  visibility: "private" | "public";
+};
+
+export type MaterialUploadSessionCreateResponse = {
+  session_id: string;
+  upload_id: string;
+  object_key: string;
+  chunk_size: number;
+  total_parts: number;
+  part_urls: string[];
+  expires_at: string;
 };
 
 export type WeatherResponse = {

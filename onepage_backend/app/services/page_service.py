@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,7 @@ from app.core.exceptions import NotFoundException
 from app.models.element import Element
 from app.models.journal import Journal
 from app.models.page import Page
+from app.services.material_service import MaterialService
 
 
 class PageService:
@@ -40,13 +42,19 @@ class PageService:
             layout_json=layout_json,
             weather=weather,
             mood=mood,
-            page_date=page_date,
+            page_date=self._normalize_page_date(page_date),
         )
         self.db.add(page)
         await self.db.flush()
 
         if elements:
             self._batch_insert_elements(page.id, elements)
+
+        if layout_json:
+            await MaterialService(self.db).mark_used_by_urls(
+                user_id=user_id,
+                urls=MaterialService.extract_material_urls_from_layout(layout_json),
+            )
 
         journal.page_count = (journal.page_count or 0) + 1
         await self.db.refresh(page)
@@ -67,6 +75,8 @@ class PageService:
         page = await self.get_by_id(page_id, user_id)
 
         update_fields = {k: v for k, v in data.items() if k != "elements" and v is not None}
+        if "page_date" in update_fields:
+            update_fields["page_date"] = self._normalize_page_date(update_fields["page_date"])
         if update_fields:
             await self.db.execute(update(Page).where(Page.id == page_id).values(**update_fields))
 
@@ -78,6 +88,12 @@ class PageService:
             for el in existing:
                 await self.db.delete(el)
             self._batch_insert_elements(page_id, data["elements"])
+
+        if data.get("layout_json"):
+            await MaterialService(self.db).mark_used_by_urls(
+                user_id=user_id,
+                urls=MaterialService.extract_material_urls_from_layout(data["layout_json"]),
+            )
 
         await self.db.refresh(page)
         return page
@@ -100,3 +116,9 @@ class PageService:
                 z_index=el_data.get("z_index", 0),
             )
             self.db.add(el)
+
+    @staticmethod
+    def _normalize_page_date(page_date: str | date | None) -> date | None:
+        if page_date is None or isinstance(page_date, date):
+            return page_date
+        return date.fromisoformat(page_date)

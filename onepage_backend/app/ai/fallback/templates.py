@@ -1,3 +1,5 @@
+import copy
+
 FALLBACK_TEMPLATES = {
     "happy": {
         "page": {"width": 1080, "height": 1920, "background": "#FFF8E7"},
@@ -66,7 +68,36 @@ FALLBACK_TEMPLATES = {
 DEFAULT_TEMPLATE = FALLBACK_TEMPLATES["neutral"]
 
 
-def get_fallback_layout(emotion: str | None = None) -> dict:
-    if emotion and emotion in FALLBACK_TEMPLATES:
-        return FALLBACK_TEMPLATES[emotion]
-    return DEFAULT_TEMPLATE
+def get_fallback_layout(emotion: str | None = None, content_text: str | None = None, page_date: str | None = None) -> dict:
+    template = FALLBACK_TEMPLATES.get(emotion or "", DEFAULT_TEMPLATE)
+    layout = copy.deepcopy(template)
+
+    if page_date:
+        for element in layout.get("elements", []):
+            if element.get("type") == "date_tag":
+                element.setdefault("props", {})["date"] = page_date
+
+    if content_text:
+        text_elements = [el for el in layout.get("elements", []) if el.get("type") == "text"]
+        if text_elements:
+            text_elements[0].setdefault("props", {})["content"] = content_text
+        else:
+            layout.setdefault("elements", []).append(
+                {
+                    "type": "text",
+                    "props": {
+                        "content": content_text,
+                        "font": layout.get("style", {}).get("font", "handwriting"),
+                        "size": 42,
+                        "color": "#5C4A3A",
+                        "x": 80,
+                        "y": 500,
+                        "w": 920,
+                        "align": "left",
+                        "lineHeight": 1.8,
+                    },
+                    "z_index": 30,
+                }
+            )
+
+    return layout

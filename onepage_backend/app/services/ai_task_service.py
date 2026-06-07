@@ -19,7 +19,7 @@ class AITaskService:
 
     async def create_task(self, user_id: str, input_json: dict) -> AITask:
         task_id = uuid.uuid4().hex[:12]
-        logger.info("service_ai_task_create_start", task_id=task_id, user_id=user_id)
+        logger.debug("service_ai_task_create_start", task_id=task_id, user_id=user_id)
         task = AITask(
             task_id=task_id,
             user_id=user_id,
@@ -29,7 +29,7 @@ class AITaskService:
         )
         self.db.add(task)
         await self.db.flush()
-        logger.info("service_ai_task_flushed", task_id=task_id)
+        logger.debug("service_ai_task_flushed", task_id=task_id)
 
         if self.redis:
             await self.redis.setex(
@@ -37,7 +37,7 @@ class AITaskService:
                 settings.SSE_TTL,
                 json.dumps({"status": "pending", "progress": 0}, ensure_ascii=False),
             )
-            logger.info("service_ai_task_cached_pending", task_id=task_id)
+            logger.debug("service_ai_task_cached_pending", task_id=task_id)
 
         # Defer Celery dispatch to route layer (avoids circular import)
         await self.db.refresh(task)
@@ -50,9 +50,9 @@ class AITaskService:
             cached = await self.redis.get(f"task:{task_id}:status")
             if cached:
                 cached_data = json.loads(cached)
-                logger.info("service_ai_task_cache_hit", task_id=task_id, status=cached_data.get("status"), progress=cached_data.get("progress"))
+                logger.debug("service_ai_task_cache_hit", task_id=task_id, status=cached_data.get("status"), progress=cached_data.get("progress"))
             else:
-                logger.info("service_ai_task_cache_miss", task_id=task_id)
+                logger.debug("service_ai_task_cache_miss", task_id=task_id)
 
         q = select(AITask).where(AITask.task_id == task_id)
         task = (await self.db.execute(q)).scalar_one_or_none()
@@ -75,5 +75,5 @@ class AITaskService:
         if cached_data:
             data["status"] = cached_data.get("status", data["status"])
             data["progress"] = cached_data.get("progress", data["progress"])
-        logger.info("service_ai_task_get_done", task_id=task_id, status=data["status"], progress=data["progress"])
+        logger.debug("service_ai_task_get_done", task_id=task_id, status=data["status"], progress=data["progress"])
         return data

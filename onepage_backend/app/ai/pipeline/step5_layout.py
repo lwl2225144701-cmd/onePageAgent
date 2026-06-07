@@ -2,6 +2,7 @@ import json
 import structlog
 
 from app.ai.fallback.templates import get_fallback_layout
+from app.ai.pipeline.llm_json import extract_message_content
 from app.ai.prompts.layout_generation import SYSTEM_PROMPT, USER_TEMPLATE
 
 logger = structlog.get_logger(__name__)
@@ -14,6 +15,7 @@ async def run_layout_generation(ctx: dict) -> str:
     step3 = ctx.get("step3", {})
     step4 = ctx.get("step4", {})
     input_json = ctx["input_json"]
+    print(f"STEP5_MODEL_START task_id={ctx.get('task_id')}", flush=True)
 
     # Build context for the prompt
     content_text = input_json.get("text", "") or input_json.get("content_text", "")
@@ -26,6 +28,7 @@ async def run_layout_generation(ctx: dict) -> str:
     try:
         result = await _call_qwen(content_text, image_info, step3, step2, step4, weather, mood, page_date)
         if result:
+            print(f"STEP5_MODEL_OK task_id={ctx.get('task_id')} model=qwen", flush=True)
             return result
     except Exception as e:
         logger.warning("step5_qwen_failed", error=str(e))
@@ -34,19 +37,20 @@ async def run_layout_generation(ctx: dict) -> str:
     try:
         result = await _call_deepseek(content_text, image_info, step3, step2, step4, weather, mood, page_date)
         if result:
+            print(f"STEP5_MODEL_OK task_id={ctx.get('task_id')} model=deepseek", flush=True)
             return result
     except Exception as e:
         logger.warning("step5_deepseek_failed", error=str(e))
 
     # Ultimate fallback
     emotion = step2.get("primary_emotion", "neutral")
-    return json.dumps(get_fallback_layout(emotion), ensure_ascii=False)
+    print(f"STEP5_MODEL_FALLBACK task_id={ctx.get('task_id')} emotion={emotion}", flush=True)
+    return json.dumps(get_fallback_layout(emotion, content_text=content_text, page_date=page_date), ensure_ascii=False)
 
 
 async def _call_qwen(content_text, image_info, style, emotion_data, materials, weather, mood, page_date) -> str | None:
     from app.ai.gateway.qwen_client import QwenClient
 
-    client = QwenClient()
     prompt = USER_TEMPLATE.format(
         content_text=content_text or "记录今日点滴",
         image_info=image_info,
@@ -60,27 +64,15 @@ async def _call_qwen(content_text, image_info, style, emotion_data, materials, w
         mood=mood or "记录",
         page_date=page_date or "",
     )
-    resp = await client.chat(
-        messages=[{"role": "user", "content": prompt}],
-        system_prompt=SYSTEM_PROMPT,
-        temperature=0.7,
-        max_tokens=4096,
-        response_format={"type": "json_object"},
+    return await _call_layout_model(
+        client_factory=QwenClient,
+        prompt=prompt,
     )
-    await client.close()
-
-    content = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
-    if not content:
-        content = resp.get("output", {}).get("choices", [{}])[0].get("message", {}).get("content", "")
-    if content:
-        return content.strip()
-    return None
 
 
 async def _call_deepseek(content_text, image_info, style, emotion_data, materials, weather, mood, page_date) -> str | None:
     from app.ai.gateway.deepseek_client import DeepSeekClient
 
-    client = DeepSeekClient()
     prompt = USER_TEMPLATE.format(
         content_text=content_text or "记录今日点滴",
         image_info=image_info,
@@ -94,16 +86,23 @@ async def _call_deepseek(content_text, image_info, style, emotion_data, material
         mood=mood or "记录",
         page_date=page_date or "",
     )
-    resp = await client.chat(
-        messages=[{"role": "user", "content": prompt}],
-        system_prompt=SYSTEM_PROMPT,
-        temperature=0.7,
-        max_tokens=4096,
-        response_format={"type": "json_object"},
+    return await _call_layout_model(
+        client_factory=DeepSeekClient,
+        prompt=prompt,
     )
-    await client.close()
 
-    content = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
-    if content:
-        return content.strip()
-    return None
+
+async def _call_layout_model(*, client_factory, prompt: str) -> str | None:
+    client = client_factory()
+    try:
+        response = await client.chat(
+            messages=[{"role": "user", "content": prompt}],
+            system_prompt=SYSTEM_PROMPT,
+            temperature=0.7,
+            max_tokens=4096,
+            response_format={"type": "json_object"},
+        )
+        content = extract_message_content(response)
+        return content or None
+    finally:
+        await client.close()

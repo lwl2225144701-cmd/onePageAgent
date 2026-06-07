@@ -11,7 +11,8 @@ def main():
         (
             "mc alias set local http://training-minio:9000 minioadmin minioadmin && "
             "mc mb --ignore-existing local/onepage-uploads && "
-            "mc mb --ignore-existing local/onepage-materials"
+            "mc mb --ignore-existing local/onepage-materials && "
+            r"""mc anonymous set download local/onepage-materials"""
         ),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)

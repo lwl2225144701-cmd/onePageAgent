@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from minio import Minio
+from minio.commonconfig import ComposeSource
 
 from app.config import settings
 
@@ -28,3 +31,20 @@ def minio_upload_data(bucket: str, object_name: str, data: bytes, content_type: 
     client = get_minio()
     client.put_object(bucket, object_name, io.BytesIO(data), length=size, content_type=content_type)
     return f"{'https' if settings.MINIO_SECURE else 'http'}://{settings.MINIO_ENDPOINT}/{bucket}/{object_name}"
+
+
+def minio_presigned_put_url(bucket: str, object_name: str, expires_seconds: int = 3600) -> str:
+    client = get_minio()
+    return client.presigned_put_object(bucket, object_name, expires=timedelta(seconds=expires_seconds))
+
+
+def minio_compose_object(bucket: str, object_name: str, source_object_names: list[str]) -> str:
+    client = get_minio()
+    sources = [ComposeSource(bucket, source_name) for source_name in source_object_names]
+    client.compose_object(bucket, object_name, sources)
+    return f"{'https' if settings.MINIO_SECURE else 'http'}://{settings.MINIO_ENDPOINT}/{bucket}/{object_name}"
+
+
+def minio_remove_object(bucket: str, object_name: str):
+    client = get_minio()
+    client.remove_object(bucket, object_name)
