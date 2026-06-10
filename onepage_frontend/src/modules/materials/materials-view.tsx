@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Clock3, Heart, ImageIcon, LayoutGrid, Search, Shapes, Upload } from "lucide-react";
 import {
   cancelMaterialUploadSession,
@@ -42,6 +42,7 @@ export function MaterialsView() {
   const [stickerMaterials, setStickerMaterials] = useState<MaterialResponse[]>([]);
   const [backgroundMaterials, setBackgroundMaterials] = useState<MaterialResponse[]>([]);
   const [decorationMaterials, setDecorationMaterials] = useState<MaterialResponse[]>([]);
+  const [materialCounts, setMaterialCounts] = useState<Record<MaterialType, number>>({ sticker: 0, background: 0, decoration: 0 });
   const [activeType, setActiveType] = useState<MaterialType>("sticker");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStickerCategory, setSelectedStickerCategory] = useState("全部");
@@ -59,28 +60,54 @@ export function MaterialsView() {
   const [visibility, setVisibility] = useState<"private" | "public">("private");
   const [file, setFile] = useState<File | null>(null);
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
+      const query = searchQuery.trim() || undefined;
       const [stickers, backgrounds, decorations] = await Promise.all([
-        listMaterials({ type: "sticker" }),
-        listMaterials({ type: "background" }),
-        listMaterials({ type: "decoration" })
+        listMaterials({
+          type: "sticker",
+          category: selectedStickerCategory === "全部" ? undefined : selectedStickerCategory,
+          tag: selectedStickerStyle === "全部" ? undefined : selectedStickerStyle,
+          query
+        }),
+        listMaterials({
+          type: "background",
+          category: selectedBackgroundCategory === "全部" ? undefined : selectedBackgroundCategory,
+          query
+        }),
+        listMaterials({
+          type: "decoration",
+          category: selectedDecorationCategory === "全部" ? undefined : selectedDecorationCategory,
+          query
+        })
       ]);
       setStickerMaterials(stickers.data);
       setBackgroundMaterials(backgrounds.data);
       setDecorationMaterials(decorations.data);
+      setMaterialCounts({
+        sticker: stickers.pagination.total,
+        background: backgrounds.pagination.total,
+        decoration: decorations.pagination.total
+      });
     } catch {
       setStickerMaterials([]);
       setBackgroundMaterials([]);
       setDecorationMaterials([]);
+      setMaterialCounts({ sticker: 0, background: 0, decoration: 0 });
     }
 
     recommendMaterials({ style: "插画", emotion: "治愈", scene: "旅行" })
       .then(setGroups)
       .catch(() => setGroups([]));
-  }
+  }, [
+    searchQuery,
+    selectedBackgroundCategory,
+    selectedDecorationCategory,
+    selectedStickerCategory,
+    selectedStickerStyle
+  ]);
 
-  async function loadSpecialData(mode: "recent" | "favorites") {
+  const loadSpecialData = useCallback(async (mode: "recent" | "favorites") => {
     try {
       const loader = mode === "recent" ? listRecentMaterials : listFavoriteMaterials;
       const [stickers, backgrounds, decorations] = await Promise.all([
@@ -91,20 +118,26 @@ export function MaterialsView() {
       setStickerMaterials(stickers.data);
       setBackgroundMaterials(backgrounds.data);
       setDecorationMaterials(decorations.data);
+      setMaterialCounts({
+        sticker: stickers.pagination.total,
+        background: backgrounds.pagination.total,
+        decoration: decorations.pagination.total
+      });
     } catch {
       setStickerMaterials([]);
       setBackgroundMaterials([]);
       setDecorationMaterials([]);
+      setMaterialCounts({ sticker: 0, background: 0, decoration: 0 });
     }
-  }
+  }, []);
 
   useEffect(() => {
     if (viewMode === "all") {
-      loadData();
+      void loadData();
       return;
     }
     void loadSpecialData(viewMode);
-  }, [viewMode]);
+  }, [viewMode, loadData, loadSpecialData]);
 
   useEffect(() => {
     setCategory(categoryMap[materialType][0]);
@@ -129,20 +162,20 @@ export function MaterialsView() {
     query: searchQuery
   });
 
-  const stickerVisible = stickerMaterials.filter((item) =>
+  const stickerVisible = viewMode === "all" ? stickerMaterials : stickerMaterials.filter((item) =>
     matchesMaterial(item, {
       category: selectedStickerCategory,
       tag: selectedStickerStyle,
       query: searchQuery
     })
   );
-  const backgroundVisible = backgroundMaterials.filter((item) =>
+  const backgroundVisible = viewMode === "all" ? backgroundMaterials : backgroundMaterials.filter((item) =>
     matchesMaterial(item, {
       category: selectedBackgroundCategory,
       query: searchQuery
     })
   );
-  const decorationVisible = decorationMaterials.filter((item) =>
+  const decorationVisible = viewMode === "all" ? decorationMaterials : decorationMaterials.filter((item) =>
     matchesMaterial(item, {
       category: selectedDecorationCategory,
       query: searchQuery
@@ -247,7 +280,7 @@ export function MaterialsView() {
           <MaterialPanel
             title="贴图 Sticker"
             subtitle="小小贴纸，点亮今天的心情。"
-            count={hasStickerFilters ? stickerVisible.length : stickerMaterials.length || recommendedCounts.sticker || 0}
+            count={materialCounts.sticker || (hasStickerFilters ? stickerVisible.length : stickerMaterials.length || recommendedCounts.sticker || 0)}
           >
             <TagLine label="内容分类" tags={stickerEmotionTags} activeTag={selectedStickerCategory} onSelect={setSelectedStickerCategory} />
             <TagLine label="风格标签" tags={stickerStyleTags} activeTag={selectedStickerStyle} onSelect={setSelectedStickerStyle} className="mt-4" />
@@ -265,7 +298,7 @@ export function MaterialsView() {
           <MaterialPanel
             title="背景 Background"
             subtitle="纸纹、网格、水彩底色，铺好这一页的氛围。"
-            count={hasBackgroundFilters ? backgroundVisible.length : backgroundMaterials.length || recommendedCounts.background || 0}
+            count={materialCounts.background || (hasBackgroundFilters ? backgroundVisible.length : backgroundMaterials.length || recommendedCounts.background || 0)}
           >
             <TagLine tags={backgroundTags} activeTag={selectedBackgroundCategory} onSelect={setSelectedBackgroundCategory} />
             <AssetGrid
@@ -284,7 +317,7 @@ export function MaterialsView() {
           <MaterialPanel
             title="拼贴元素 Collage"
             subtitle="胶带、标签、撕纸和边框，让页面更有层次。"
-            count={hasDecorationFilters ? decorationVisible.length : decorationMaterials.length || recommendedCounts.decoration || 0}
+            count={materialCounts.decoration || (hasDecorationFilters ? decorationVisible.length : decorationMaterials.length || recommendedCounts.decoration || 0)}
           >
             <TagLine tags={collageTags} activeTag={selectedDecorationCategory} onSelect={setSelectedDecorationCategory} />
             <AssetGrid

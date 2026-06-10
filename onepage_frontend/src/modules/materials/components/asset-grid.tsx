@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Heart, Plus } from "lucide-react";
+import { Heart, ImageOff, Plus } from "lucide-react";
 
-import { getMaterialPreviewUrl } from "@/modules/materials/utils";
+import { getMaterialImageUrlCandidates } from "@/modules/materials/utils";
 import type { MaterialResponse } from "@/types/backend";
 
 type AssetGridProps = {
@@ -70,14 +70,62 @@ function AssetCard({
 }) {
   const category = String(item.meta_info?.category ?? "");
   const visibility = String(item.meta_info?.visibility ?? "public");
-  const tags = Array.isArray(item.meta_info?.tags) ? (item.meta_info?.tags as unknown[]).map(String) : [];
-  const previewUrl = getMaterialPreviewUrl(item);
+  const imageUrls = getMaterialImageUrlCandidates(item);
+  const [imageIndex, setImageIndex] = useState(0);
+  const [imageError, setImageError] = useState(false);
+  const warnedRef = useRef<Set<string>>(new Set());
+  const previewUrl = imageUrls[imageIndex] ?? null;
   const mimeType = String(item.mime_type ?? item.meta_info?.mime_type ?? "");
-  const isSvg = mimeType === "image/svg+xml" || previewUrl.endsWith(".svg");
+  const isSvg = mimeType === "image/svg+xml" || Boolean(previewUrl?.endsWith(".svg"));
   const formatLabel = isSvg ? "SVG" : mimeType.includes("png") ? "PNG" : mimeType.includes("jpeg") || mimeType.includes("jpg") ? "JPG" : "";
   const typeLabel = item.material_type === "background" ? "背景" : item.material_type === "decoration" ? "拼贴" : "贴图";
   const metaText = [typeLabel, formatLabel].filter(Boolean).join(" · ");
   const isBackground = variant === "background";
+  const imageAlt = String(item.meta_info?.display_name ?? item.meta_info?.filename ?? "素材图片");
+  const showImage = Boolean(previewUrl) && !imageError;
+
+  useEffect(() => {
+    setImageIndex(0);
+    setImageError(false);
+    warnedRef.current.clear();
+  }, [item.id]);
+
+  useEffect(() => {
+    if (imageUrls.length > 0 || process.env.NODE_ENV === "production" || warnedRef.current.has("missing")) return;
+    warnedRef.current.add("missing");
+    console.warn("[MaterialCard] image url missing or failed", {
+      id: item.id,
+      filename: item.meta_info?.filename,
+      material_type: item.material_type,
+      category,
+      file_url: item.file_url,
+      preview_url: item.preview_url,
+      raw_file_url: item.raw_file_url,
+      meta_info: item.meta_info
+    });
+  }, [category, imageUrls.length, item]);
+
+  function handleImageError() {
+    if (process.env.NODE_ENV !== "production" && previewUrl && !warnedRef.current.has(previewUrl)) {
+      warnedRef.current.add(previewUrl);
+      console.warn("[MaterialCard] image url missing or failed", {
+        id: item.id,
+        filename: item.meta_info?.filename,
+        material_type: item.material_type,
+        category,
+        failed_url: previewUrl,
+        file_url: item.file_url,
+        preview_url: item.preview_url,
+        raw_file_url: item.raw_file_url,
+        meta_info: item.meta_info
+      });
+    }
+    if (imageIndex < imageUrls.length - 1) {
+      setImageIndex((current) => current + 1);
+      return;
+    }
+    setImageError(true);
+  }
 
   return (
     <div
@@ -99,13 +147,23 @@ function AssetCard({
           isBackground ? "aspect-[16/9] p-4" : "aspect-square p-3"
         }`}
       >
-        <img
-          src={previewUrl}
-          alt={category || item.material_type}
-          loading="lazy"
-          decoding="async"
-          className={`h-full w-full [content-visibility:auto] ${isBackground ? "rounded-[8px] object-cover shadow-[0_4px_10px_rgba(111,82,51,0.08)]" : "rounded-[9px] object-contain"}`}
-        />
+        {showImage ? (
+          <img
+            src={previewUrl ?? undefined}
+            alt={imageAlt}
+            loading="lazy"
+            decoding="async"
+            onError={handleImageError}
+            className={`h-full w-full [content-visibility:auto] ${isBackground ? "rounded-[8px] object-contain shadow-[0_4px_10px_rgba(111,82,51,0.08)]" : "rounded-[9px] object-contain"}`}
+          />
+        ) : (
+          <div className="grid h-full w-full place-items-center rounded-[9px] border border-dashed border-[#dfcfbb]/80 bg-[#fffaf3]/42 text-center text-[11px] leading-4 text-[#a39483]">
+            <span className="flex flex-col items-center gap-1.5">
+              <ImageOff size={18} strokeWidth={1.6} className="text-[#b7a58e]" />
+              暂无预览
+            </span>
+          </div>
+        )}
       </div>
       <div className={`mt-2 text-left text-[#6f6257] ${isBackground ? "min-h-[34px] px-1 text-[11px] leading-4" : "min-h-[32px] text-[10px] leading-4"}`}>
         <div className="truncate font-medium text-[#4f4238]">{category || item.material_type}</div>

@@ -1,13 +1,17 @@
 import mimetypes
+import re
+from pathlib import Path
 from urllib.parse import urlparse
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import RedirectResponse, Response
+from minio import Minio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.serializers import to_material_group_response, to_material_response, to_paginated_response
 from app.api.deps import get_current_user, get_db, get_redis
+from app.config import settings
 from app.core.minio import get_minio
 from app.schemas.common import PaginatedResponse, UnifiedResponse
 from app.schemas.material import (
@@ -21,6 +25,9 @@ from app.schemas.material import (
 from app.services.material_service import MaterialService, MaterialUploadService
 
 router = APIRouter()
+REPO_ROOT = Path(__file__).resolve().parents[4]
+MATERIAL_SOURCE_ROOT = REPO_ROOT / "素材2.0"
+HTML_IMAGE_SRC_RE = re.compile(rb"<img[^>]+src=[\"']([^\"']+)[\"']", re.IGNORECASE)
 
 
 @router.get("", response_model=UnifiedResponse[PaginatedResponse[MaterialResponse]])
@@ -29,6 +36,9 @@ async def list_materials(
     style: str | None = None,
     emotion: str | None = None,
     scene: str | None = None,
+    category: str | None = None,
+    tag: str | None = None,
+    query: str | None = None,
     user_id: str = Depends(get_current_user),
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
@@ -36,7 +46,7 @@ async def list_materials(
 ):
     svc = MaterialService(db)
     materials, total = await svc.list_materials(
-        material_type=type, style=style, emotion=emotion, scene=scene, user_id=user_id,
+        material_type=type, style=style, emotion=emotion, scene=scene, category=category, tag=tag, query=query, user_id=user_id,
         page=page, size=size,
     )
     items = [to_material_response(item, user_id) for item in materials]
@@ -183,19 +193,21 @@ async def _serve_material_binary(*, material_id: str, variant: str, user_id: str
     mime_type = mimetypes.guess_type(str(target_url))[0] or meta.get("mime_type") or "application/octet-stream"
     object_name = _extract_object_name_from_url(str(target_url))
     if not object_name:
+        local_response = _serve_local_material_fallback(meta)
+        if local_response is not None:
+            return local_response
         raise HTTPException(status_code=404, detail="Material object not found")
 
-    obj = get_minio().get_object("onepage-materials", object_name)
-    try:
-        data = obj.read()
-    finally:
-        obj.close()
-        obj.release_conn()
-    return Response(
-        content=data,
-        media_type=mime_type,
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
-    )
+    data = _read_material_object(object_name)
+    if data is not None:
+        response = _build_material_binary_response(data, mime_type)
+        if response is not None:
+            return response
+
+    local_response = _serve_local_material_fallback(meta)
+    if local_response is not None:
+        return local_response
+    raise HTTPException(status_code=404, detail="Material object not found")
 
 
 def _extract_object_name_from_url(url: str) -> str | None:
@@ -205,3 +217,92 @@ def _extract_object_name_from_url(url: str) -> str | None:
     if not path.startswith(bucket_prefix):
         return None
     return path[len(bucket_prefix):]
+
+
+def _read_material_object(object_name: str) -> bytes | None:
+    clients = [get_minio()]
+    if settings.MINIO_ENDPOINT.startswith(("127.0.0.1:", "localhost:")):
+        clients.append(Minio(
+            endpoint="training-minio:9000",
+            access_key=settings.MINIO_ACCESS_KEY,
+            secret_key=settings.MINIO_SECRET_KEY,
+            secure=settings.MINIO_SECURE,
+        ))
+
+    for client in clients:
+        obj = None
+        try:
+            obj = client.get_object(settings.MINIO_BUCKET_MATERIALS, object_name)
+            return obj.read()
+        except Exception:
+            continue
+        finally:
+            if obj is not None:
+                obj.close()
+                obj.release_conn()
+    return None
+
+
+def _serve_local_material_fallback(meta: dict) -> Response | None:
+    asset_path = _find_local_material_path(meta)
+    if asset_path is None:
+        return None
+    mime_type = mimetypes.guess_type(asset_path.name)[0] or meta.get("mime_type") or "application/octet-stream"
+    return _build_material_binary_response(asset_path.read_bytes(), mime_type, max_age=86400)
+
+
+def _build_material_binary_response(data: bytes, mime_type: str, max_age: int = 31536000) -> Response | RedirectResponse | None:
+    embedded_url = _extract_embedded_image_url(data)
+    if embedded_url:
+        return RedirectResponse(embedded_url, status_code=302)
+    if not _looks_like_image(data, mime_type):
+        return None
+    return Response(
+        content=data,
+        media_type=mime_type,
+        headers={"Cache-Control": f"public, max-age={max_age}, immutable"},
+    )
+
+
+def _extract_embedded_image_url(data: bytes) -> str | None:
+    head = data[:4096].lstrip().lower()
+    if not head.startswith(b"<html") and b"<img" not in head:
+        return None
+    match = HTML_IMAGE_SRC_RE.search(data[:8192])
+    if not match:
+        return None
+    url = match.group(1).decode("utf-8", errors="ignore").strip()
+    return url if url.startswith(("http://", "https://")) else None
+
+
+def _looks_like_image(data: bytes, mime_type: str) -> bool:
+    head = data[:2048].lstrip()
+    lowered = head.lower()
+    if mime_type == "image/svg+xml" or lowered.startswith(b"<?xml") or b"<svg" in lowered:
+        return b"<svg" in lowered
+    return (
+        data.startswith(b"\xff\xd8\xff") or
+        data.startswith(b"\x89PNG\r\n\x1a\n") or
+        (data.startswith(b"RIFF") and b"WEBP" in data[:16]) or
+        data.startswith((b"GIF87a", b"GIF89a"))
+    )
+
+
+def _find_local_material_path(meta: dict) -> Path | None:
+    candidates: list[Path] = []
+    for key in ("origin_path", "filepath"):
+        value = str(meta.get(key) or "").strip()
+        if value:
+            candidates.append(Path(value))
+    target_path = str(meta.get("target_path") or "").strip()
+    if target_path:
+        candidates.append(MATERIAL_SOURCE_ROOT / target_path)
+
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve()
+        except OSError:
+            continue
+        if resolved.is_file() and resolved.is_relative_to(MATERIAL_SOURCE_ROOT.resolve()):
+            return resolved
+    return None

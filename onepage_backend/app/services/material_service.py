@@ -149,6 +149,9 @@ class MaterialService:
         style: str | None = None,
         emotion: str | None = None,
         scene: str | None = None,
+        category: str | None = None,
+        tag: str | None = None,
+        query: str | None = None,
         user_id: str | None = None,
         page: int = 1,
         size: int = 50,
@@ -157,11 +160,17 @@ class MaterialService:
 
         filtered = []
         for m in all_materials:
+            if category and category != "全部" and self._material_category(m) != category:
+                continue
             if style and not self._matches_named_tag(style, self._material_style_tags(m)):
                 continue
             if emotion and not self._matches_named_tag(emotion, self._material_emotion_tags(m)):
                 continue
             if scene and not self._matches_named_tag(scene, self._material_scene_tags(m)):
+                continue
+            if tag and tag != "全部" and not self._matches_named_tag(tag, self._material_search_values(m)):
+                continue
+            if query and not self._matches_free_text(query, self._material_search_values(m)):
                 continue
             filtered.append(m)
 
@@ -442,6 +451,33 @@ class MaterialService:
     def _material_category(self, material: Material) -> str:
         return str((material.meta_info or {}).get("category") or "")
 
+    def _material_sub_category(self, material: Material) -> str:
+        return str((material.meta_info or {}).get("sub_category") or "")
+
+    def _material_usage_type(self, material: Material) -> str:
+        return str((material.meta_info or {}).get("usage_type") or "")
+
+    def _material_semantic_tags(self, material: Material) -> list[str]:
+        semantic_tags = (material.meta_info or {}).get("semantic_tags") or []
+        return self._normalize_tags(semantic_tags if isinstance(semantic_tags, list) else [])
+
+    def _material_search_values(self, material: Material) -> list[str]:
+        meta = material.meta_info or {}
+        return self._normalize_tags([
+            material.material_type,
+            self._material_category(material),
+            self._material_sub_category(material),
+            self._material_usage_type(material),
+            str(meta.get("display_name") or ""),
+            str(meta.get("filename") or ""),
+            str(meta.get("target_path") or ""),
+            *self._material_meta_tags(material),
+            *self._material_semantic_tags(material),
+            *self._material_style_tags(material),
+            *self._material_emotion_tags(material),
+            *self._material_scene_tags(material),
+        ])
+
     def _material_style_tags(self, material: Material) -> list[str]:
         return self._normalize_tags([*(material.style_tags or []), *self._material_meta_tags(material)])
 
@@ -527,6 +563,12 @@ class MaterialService:
             if self._matches_named_tag(term, tags):
                 return term
         return None
+
+    def _matches_free_text(self, query: str, values: list[str]) -> bool:
+        query_lower = query.strip().lower()
+        if not query_lower:
+            return True
+        return any(query_lower in value.lower() for value in values)
 
     def _score_material(
         self,

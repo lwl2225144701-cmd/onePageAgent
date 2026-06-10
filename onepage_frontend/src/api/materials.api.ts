@@ -7,7 +7,7 @@ import type {
   PaginatedResponse
 } from "@/types/backend";
 
-type MaterialListParams = { type?: string; style?: string; emotion?: string; scene?: string };
+type MaterialListParams = { type?: string; style?: string; emotion?: string; scene?: string; category?: string; tag?: string; query?: string };
 
 async function listPaginatedMaterials(
   path: string,
@@ -19,20 +19,7 @@ async function listPaginatedMaterials(
 }
 
 async function listAllFromPath(path: string, params: MaterialListParams = {}) {
-  const firstPage = await listPaginatedMaterials(path, params, 1);
-  const totalPages = firstPage.pagination.total_pages;
-  if (totalPages <= 1) {
-    return firstPage;
-  }
-
-  const remainingPages = await Promise.all(
-    Array.from({ length: totalPages - 1 }, (_, index) => listPaginatedMaterials(path, params, index + 2))
-  );
-
-  return {
-    data: [firstPage.data, ...remainingPages.map((pageData) => pageData.data)].flat(),
-    pagination: firstPage.pagination
-  };
+  return listPaginatedMaterials(path, params, 1);
 }
 
 export function listMaterials(params: MaterialListParams = {}) {
