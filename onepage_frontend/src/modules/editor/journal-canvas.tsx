@@ -92,6 +92,12 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
   }, []);
 
   const pageSize = { width: layout.page.width, height: layout.page.height };
+  const taskId =
+    typeof (layout as { task_id?: unknown }).task_id === "string"
+      ? String((layout as { task_id?: unknown }).task_id)
+      : typeof (layout as { meta?: { task_id?: unknown } }).meta?.task_id === "string"
+        ? String((layout as { meta?: { task_id?: unknown } }).meta?.task_id)
+        : "";
   const scale = useMemo(() => {
     if (!viewport.width || !viewport.height) return DEFAULT_SCALE;
 
@@ -216,6 +222,9 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                   }}
                   id={id}
                   url={typeof props.url === "string" ? props.url : undefined}
+                  elementType={element.type}
+                  materialId={typeof props.material_id === "string" ? props.material_id : undefined}
+                  taskId={taskId}
                   pageWidth={pageSize.width}
                   pageHeight={pageSize.height}
                   x={frame.x}
@@ -266,6 +275,9 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                     key={id}
                     id={id}
                     url={props.url}
+                    elementType={element.type}
+                    materialId={typeof props.material_id === "string" ? props.material_id : undefined}
+                    taskId={taskId}
                     pageWidth={pageSize.width}
                     pageHeight={pageSize.height}
                     x={frame.x}

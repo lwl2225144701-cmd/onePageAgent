@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import structlog
 
 from app.ai.fallback.templates import get_fallback_layout
@@ -13,6 +14,8 @@ class AIOrchestrator:
     async def run(self, task_id: str, user_id: str, input_json: dict) -> dict:
         logger.info("orchestrator_run_start", task_id=task_id, user_id=user_id)
         print(f"ORCH_START task_id={task_id}", flush=True)
+        total_started = time.perf_counter()
+        timings: dict[str, int] = {}
         ctx = {
             "task_id": task_id,
             "user_id": user_id,
@@ -22,11 +25,24 @@ class AIOrchestrator:
         try:
             await self._publish_progress(task_id, 0, "开始分析", "processing", 0)
 
+            # Step 0: Journal environment context
+            await self._publish_progress(task_id, 0, "手帐环境上下文", "processing", 3)
+            logger.info("orchestrator_step_start", task_id=task_id, step=0, step_name="手帐环境上下文")
+            self._print_step(task_id, 0, "手帐环境上下文", "START")
+            step_started = time.perf_counter()
+            ctx["journal_context"] = await self._run_step0_journal_context(ctx)
+            timings["context_ms"] = _elapsed_ms(step_started)
+            await self._publish_progress(task_id, 0, "手帐环境上下文", "completed", 4)
+            logger.info("orchestrator_step_done", task_id=task_id, step=0, step_name="手帐环境上下文")
+            self._print_step(task_id, 0, "手帐环境上下文", "DONE")
+
             # Step 1: Content Understanding
             await self._publish_progress(task_id, 1, "内容理解", "processing", 5)
             logger.info("orchestrator_step_start", task_id=task_id, step=1, step_name="内容理解")
             self._print_step(task_id, 1, "内容理解", "START")
+            step_started = time.perf_counter()
             ctx["step1"] = await self._run_step1(ctx)
+            timings["semantic_ms"] = _elapsed_ms(step_started)
             await self._publish_progress(task_id, 1, "内容理解", "completed", 16)
             logger.info("orchestrator_step_done", task_id=task_id, step=1, step_name="内容理解")
             self._print_step(task_id, 1, "内容理解", "DONE")
@@ -35,7 +51,9 @@ class AIOrchestrator:
             await self._publish_progress(task_id, 2, "情感分析", "processing", 20)
             logger.info("orchestrator_step_start", task_id=task_id, step=2, step_name="情感分析")
             self._print_step(task_id, 2, "情感分析", "START")
+            step_started = time.perf_counter()
             ctx["step2"] = await self._run_step2(ctx)
+            timings["emotion_ms"] = _elapsed_ms(step_started)
             await self._publish_progress(task_id, 2, "情感分析", "completed", 32)
             logger.info("orchestrator_step_done", task_id=task_id, step=2, step_name="情感分析")
             self._print_step(task_id, 2, "情感分析", "DONE")
@@ -44,7 +62,9 @@ class AIOrchestrator:
             await self._publish_progress(task_id, 3, "风格推断", "processing", 36)
             logger.info("orchestrator_step_start", task_id=task_id, step=3, step_name="风格推断")
             self._print_step(task_id, 3, "风格推断", "START")
+            step_started = time.perf_counter()
             ctx["step3"] = await self._run_step3(ctx)
+            timings["style_ms"] = _elapsed_ms(step_started)
             await self._publish_progress(task_id, 3, "风格推断", "completed", 48)
             logger.info("orchestrator_step_done", task_id=task_id, step=3, step_name="风格推断")
             self._print_step(task_id, 3, "风格推断", "DONE")
@@ -53,16 +73,31 @@ class AIOrchestrator:
             await self._publish_progress(task_id, 4, "素材匹配", "processing", 52)
             logger.info("orchestrator_step_start", task_id=task_id, step=4, step_name="素材匹配")
             self._print_step(task_id, 4, "素材匹配", "START")
+            step_started = time.perf_counter()
             ctx["step4"] = await self._run_step4(ctx)
+            timings["recall_ms"] = _elapsed_ms(step_started)
             await self._publish_progress(task_id, 4, "素材匹配", "completed", 64)
             logger.info("orchestrator_step_done", task_id=task_id, step=4, step_name="素材匹配")
             self._print_step(task_id, 4, "素材匹配", "DONE")
+
+            # Step 4.5: Material Review
+            await self._publish_progress(task_id, 4, "素材审稿", "processing", 65)
+            logger.info("orchestrator_step_start", task_id=task_id, step=4.5, step_name="素材审稿")
+            self._print_step(task_id, 4, "素材审稿", "REVIEW_START")
+            step_started = time.perf_counter()
+            ctx["step4_review"] = await self._run_step4_review(ctx)
+            timings["review_ms"] = _elapsed_ms(step_started)
+            await self._publish_progress(task_id, 4, "素材审稿", "completed", 67)
+            logger.info("orchestrator_step_done", task_id=task_id, step=4.5, step_name="素材审稿")
+            self._print_step(task_id, 4, "素材审稿", "REVIEW_DONE")
 
             # Step 5: Layout Generation
             await self._publish_progress(task_id, 5, "排版生成", "processing", 68)
             logger.info("orchestrator_step_start", task_id=task_id, step=5, step_name="排版生成")
             self._print_step(task_id, 5, "排版生成", "START")
+            step_started = time.perf_counter()
             ctx["step5"] = await self._run_step5(ctx)
+            timings["layout_ms"] = _elapsed_ms(step_started)
             await self._publish_progress(task_id, 5, "排版生成", "completed", 80)
             logger.info("orchestrator_step_done", task_id=task_id, step=5, step_name="排版生成")
             self._print_step(task_id, 5, "排版生成", "DONE")
@@ -71,17 +106,31 @@ class AIOrchestrator:
             await self._publish_progress(task_id, 6, "JSON校验与修复", "processing", 84)
             logger.info("orchestrator_step_start", task_id=task_id, step=6, step_name="JSON校验与修复")
             self._print_step(task_id, 6, "JSON校验与修复", "START")
+            step_started = time.perf_counter()
             final_layout = await self._run_step6(ctx)
+            timings["validate_ms"] = _elapsed_ms(step_started)
             await self._publish_progress(task_id, 6, "JSON校验与修复", "completed", 95)
             logger.info("orchestrator_step_done", task_id=task_id, step=6, step_name="JSON校验与修复")
             self._print_step(task_id, 6, "JSON校验与修复", "DONE")
 
             # Final save to DB
-            await self._save_result(task_id, user_id, final_layout, ctx.get("step4"))
+            await self._save_result(task_id, user_id, final_layout, ctx.get("step4_review") or ctx.get("step4"))
 
             await self._publish_progress(task_id, 0, "完成", "completed", 100)
             logger.info("orchestrator_run_done", task_id=task_id)
-            print(f"ORCH_DONE task_id={task_id}", flush=True)
+            print(
+                "TASK_DONE "
+                f"task_id={task_id} total_ms={_elapsed_ms(total_started)} "
+                f"context_ms={timings.get('context_ms', 0)} "
+                f"semantic_ms={timings.get('semantic_ms', 0)} "
+                f"emotion_ms={timings.get('emotion_ms', 0)} "
+                f"style_ms={timings.get('style_ms', 0)} "
+                f"recall_ms={timings.get('recall_ms', 0)} "
+                f"review_ms={timings.get('review_ms', 0)} "
+                f"layout_ms={timings.get('layout_ms', 0)} "
+                f"validate_ms={timings.get('validate_ms', 0)}",
+                flush=True,
+            )
             return final_layout
 
         except Exception as e:
@@ -115,6 +164,26 @@ class AIOrchestrator:
         from app.ai.pipeline.step1_content import run_content_understanding
         return await run_content_understanding(ctx)
 
+    async def _run_step0_journal_context(self, ctx):
+        from app.ai.mcp_client import get_journal_page_context
+
+        input_json = ctx.get("input_json", {}) if isinstance(ctx.get("input_json"), dict) else {}
+        location = self._extract_location(input_json)
+        print(
+            "MCP_CONTEXT_DECISION "
+            f"task_id={ctx.get('task_id')} "
+            "required=True "
+            "reason=journal_page_generation "
+            f"location={location or ''} "
+            "tool_call_mode=orchestrator_required",
+            flush=True,
+        )
+        return await get_journal_page_context(
+            location=location,
+            timezone=str(input_json.get("timezone") or "Asia/Shanghai"),
+            task_id=ctx.get("task_id"),
+        )
+
     async def _run_step2(self, ctx):
         from app.ai.pipeline.step2_sentiment import run_sentiment_analysis
         return await run_sentiment_analysis(ctx)
@@ -126,6 +195,10 @@ class AIOrchestrator:
     async def _run_step4(self, ctx):
         from app.ai.pipeline.step4_material import run_material_matching
         return await run_material_matching(ctx)
+
+    async def _run_step4_review(self, ctx):
+        from app.ai.pipeline.step4_material_review import run_material_review
+        return await run_material_review(ctx)
 
     async def _run_step5(self, ctx):
         from app.ai.pipeline.step5_layout import run_layout_generation
@@ -215,11 +288,25 @@ class AIOrchestrator:
                     "type": item.get("material_type"),
                     "name": item.get("display_name") or item.get("origin_path"),
                     "category": item.get("category"),
-                    "preview_url": item.get("preview_url"),
-                    "file_url": item.get("file_url"),
                 }
             )
         return selected
+
+    def _extract_location(self, input_json: dict) -> str | None:
+        candidates: list[object] = [
+            input_json.get("district"),
+            input_json.get("city"),
+            input_json.get("location"),
+            input_json.get("location_name"),
+        ]
+        for key in ("frontend_location", "geo", "weather"):
+            value = input_json.get(key)
+            if isinstance(value, dict):
+                candidates.extend([value.get("district"), value.get("city"), value.get("location"), value.get("name")])
+        for value in candidates:
+            if isinstance(value, str) and value.strip() and value.strip().lower() not in {"未知", "未设置", "未选择", "unknown", "none", "null"}:
+                return value.strip()
+        return None
 
     async def _save_error(self, task_id: str, error: str):
         from sqlalchemy import update
@@ -235,3 +322,7 @@ class AIOrchestrator:
             await db.execute(stmt)
             await db.commit()
         logger.info("orchestrator_error_saved", task_id=task_id, error=error)
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((time.perf_counter() - started) * 1000)

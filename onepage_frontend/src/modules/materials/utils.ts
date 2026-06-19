@@ -5,15 +5,7 @@ function stringValue(value: unknown) {
 }
 
 function apiBaseUrl() {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api").replace(/\/+$/, "");
-}
-
-function apiOrigin() {
-  try {
-    return new URL(apiBaseUrl()).origin;
-  } catch {
-    return "";
-  }
+  return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api").replace(/\/+$/, "");
 }
 
 function isLocalFilePath(value: string) {
@@ -28,14 +20,24 @@ function isLocalFilePath(value: string) {
   );
 }
 
-function normalizeMaterialImageUrl(value: unknown) {
+export function normalizeMaterialImageUrl(value: unknown) {
   const url = stringValue(value);
   if (!url || isLocalFilePath(url)) return null;
-  if (/^https?:\/\//i.test(url) || url.startsWith("data:image/") || url.startsWith("blob:")) return url;
-  if (url.startsWith("/api/")) {
-    const origin = apiOrigin();
-    return origin ? `${origin}${url}` : null;
+  if (url.startsWith("/api/")) return url;
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.pathname.startsWith("/api/") &&
+      parsed.protocol === "http:" &&
+      parsed.port === "8000" &&
+      ["127.0.0.1", "localhost"].includes(parsed.hostname)
+    ) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    // Keep non-URL strings on the relative path checks below.
   }
+  if (/^https?:\/\//i.test(url) || url.startsWith("data:image/") || url.startsWith("blob:")) return url;
   if (url.startsWith("/materials/")) return `${apiBaseUrl()}${url}`;
   return null;
 }

@@ -31,9 +31,40 @@ const journalPaperStyle = {
   backgroundSize: "auto, auto, 18px 18px",
 } satisfies React.CSSProperties;
 
+const defaultJournalLocation = {
+  location: "上海市 静安区",
+  city: "上海市",
+  district: "静安区",
+};
+
+function readWeatherText(weather: Record<string, unknown>) {
+  return String(weather.weather ?? weather.text ?? "晴").trim() || "晴";
+}
+
+function readTemperature(weather: Record<string, unknown>) {
+  const value = weather.temperature ?? weather.temperature_celsius ?? 26;
+  return typeof value === "number" ? Math.round(value) : String(value || 26);
+}
+
+function readLocationContext(weather: Record<string, unknown>) {
+  const location = String(weather.location ?? weather.name ?? "").trim();
+  const city = String(weather.city ?? "").trim();
+  const district = String(weather.district ?? "").trim();
+  const normalizedLocation = location && !["未知", "unknown", "none", "null"].includes(location.toLowerCase()) ? location : defaultJournalLocation.location;
+
+  return {
+    location: normalizedLocation,
+    city: city || defaultJournalLocation.city,
+    district: district || defaultJournalLocation.district,
+  };
+}
+
 export function CreateView({ onGenerated }: { onGenerated: () => void }) {
   const { text, mood, imageFiles, weather, setText, setMood, setImageFiles, setImageUrls, setWeather } = useCreateStore();
   const setTask = useAITaskStore((state) => state.setTask);
+  const weatherText = readWeatherText(weather);
+  const temperature = readTemperature(weather);
+  const locationContext = readLocationContext(weather);
 
   useEffect(() => {
     if (!("geolocation" in navigator)) return;
@@ -41,7 +72,7 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
       async (position) => {
         try {
           const currentWeather = await getWeather(position.coords.latitude, position.coords.longitude);
-          setWeather(currentWeather);
+          setWeather({ ...defaultJournalLocation, ...currentWeather });
         } catch {
           // keep local fallback weather
         }
@@ -62,6 +93,7 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
         mood,
         image_urls: imageUrls,
         weather,
+        ...locationContext,
         page_date: "2024-06-01"
       });
       setTask(task.task_id);
@@ -77,14 +109,14 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
           <div className="flex items-center justify-between">
             <div className="text-left text-[22px] font-semibold leading-none">2024.06.01 周六</div>
             <div className="flex items-center gap-2 text-sm text-muted">
-              <span>26°C</span>
-              <span>晴</span>
+              <span>{temperature}°C</span>
+              <span>{weatherText}</span>
               <Sun size={16} className="text-[#e19a35]" />
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted">
             <MapPin size={14} />
-            <span>上海市 静安区</span>
+            <span>{locationContext.location}</span>
           </div>
         </header>
         <div className="mb-5 mt-6 grid grid-cols-4 gap-3.5 max-md:mb-5 max-md:mt-7">

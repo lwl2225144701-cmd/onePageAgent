@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from minio import Minio
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -164,22 +164,44 @@ async def mark_material_used(
     return UnifiedResponse(data=to_material_response(material, user_id))
 
 
+@router.head("/{material_id}/asset")
 @router.get("/{material_id}/asset")
 async def get_material_asset(
     material_id: str,
+    request: Request,
     anonymous_user_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _serve_material_binary(material_id=material_id, variant="asset", user_id=anonymous_user_id, db=db)
+    return await _serve_logged_material_binary(material_id=material_id, variant="asset", user_id=anonymous_user_id, db=db, request=request)
 
 
+@router.head("/{material_id}/preview")
 @router.get("/{material_id}/preview")
 async def get_material_preview(
     material_id: str,
+    request: Request,
     anonymous_user_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _serve_material_binary(material_id=material_id, variant="preview", user_id=anonymous_user_id, db=db)
+    return await _serve_logged_material_binary(material_id=material_id, variant="preview", user_id=anonymous_user_id, db=db, request=request)
+
+
+async def _serve_logged_material_binary(*, material_id: str, variant: str, user_id: str | None, db: AsyncSession, request: Request) -> Response:
+    origin = request.headers.get("origin", "")
+    event = "MATERIAL_PREVIEW_REQUEST" if variant == "preview" else "MATERIAL_ASSET_REQUEST"
+    try:
+        response = await _serve_material_binary(material_id=material_id, variant=variant, user_id=user_id, db=db)
+        print(f"{event} material_id={material_id} origin={origin or '-'} status={response.status_code}", flush=True)
+        if isinstance(response, RedirectResponse):
+            redirect_event = "MATERIAL_PREVIEW_REDIRECT" if variant == "preview" else "MATERIAL_ASSET_REDIRECT"
+            print(
+                f"{redirect_event} material_id={material_id} target={response.headers.get('location', '')}",
+                flush=True,
+            )
+        return response
+    except HTTPException as exc:
+        print(f"{event} material_id={material_id} origin={origin or '-'} status={exc.status_code}", flush=True)
+        raise
 
 
 async def _serve_material_binary(*, material_id: str, variant: str, user_id: str | None, db: AsyncSession) -> Response:

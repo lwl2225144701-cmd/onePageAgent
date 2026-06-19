@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,8 +9,9 @@ class Settings(BaseSettings):
     APP_NAME: str = "onepage-api"
     DEBUG: bool = False
     API_V1_PREFIX: str = "/api"
-    PUBLIC_API_BASE_URL: str = "http://127.0.0.1:8000/api"
+    PUBLIC_API_BASE_URL: str = "/api"
     SECRET_KEY: str = "change-me"
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
     ANONYMOUS_USER_HEADER: str = "X-Anonymous-User-Id"
     MAX_UPLOAD_SIZE_MB: int = 20
     ALLOWED_IMAGE_TYPES: list[str] = ["image/jpeg", "image/png", "image/webp", "image/svg+xml"]
@@ -45,11 +47,37 @@ class Settings(BaseSettings):
     QWEN_API_KEY: str = ""
     AI_REQUEST_TIMEOUT: int = 60
     AI_MAX_RETRIES: int = 3
+    DASHSCOPE_API_KEY: str = ""
+    DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    VISION_REVIEW_ENABLED: bool = True
+    VISION_REVIEW_PROVIDER: str = "dashscope"
+    VISION_REVIEW_MODEL: str = "qwen3.5-omni-flash"
+    VISION_REVIEW_TIMEOUT_SECONDS: int = 10
+    VISION_REVIEW_MAX_RETRIES: int = 1
+    VISION_REVIEW_MAX_CANDIDATES: int = 8
+    VISION_REVIEW_MODE: str = "best_effort"
+    VISION_REVIEW_FAIL_OPEN: bool = False
+    VISION_REVIEW_MAX_DATA_URL_BYTES: int = 8_000_000
+    VISION_REVIEW_CONTACT_SHEET_MIME: str = "image/jpeg"
+    VISION_REVIEW_CIRCUIT_BREAKER_ENABLED: bool = True
+    VISION_REVIEW_CIRCUIT_BREAKER_THRESHOLD: int = 3
+    VISION_REVIEW_CIRCUIT_BREAKER_COOLDOWN_SECONDS: int = 300
 
     # ── Weather ──
     WEATHER_API_URL: str = ""
     WEATHER_API_KEY: str = ""
     WEATHER_CACHE_TTL: int = 86400
+    AMAP_WEATHER_MCP_URL: str = "http://127.0.0.1:8001/mcp"
+    MCP_TOOL_TIMEOUT_SECONDS: int = 10
+    DEFAULT_WEATHER_LOCATION: str = ""
+
+    # ── Logging ──
+    PIPELINE_LOG_LEVEL: str = "INFO"
+    PIPELINE_DEBUG_TRACE: bool = False
+    LOG_EXTERNAL_LIBRARIES: str = "WARNING"
+    LOG_SSE_PROGRESS: bool = False
+    LOG_FULL_CANDIDATES: bool = False
+    LOG_MCP_PROTOCOL: bool = False
 
     # ── Rate Limit ──
     RATE_LIMIT_PER_MINUTE: int = 30
@@ -60,6 +88,14 @@ class Settings(BaseSettings):
     # ── Celery ──
     CELERY_TASK_SOFT_TIME_LIMIT: int = 300
     CELERY_TASK_TIME_LIMIT: int = 600
+
+    @field_validator("VISION_REVIEW_PROVIDER")
+    @classmethod
+    def validate_vision_review_provider(cls, value: str) -> str:
+        provider = str(value or "").strip().lower()
+        if provider not in {"dashscope", "rules"}:
+            return "rules"
+        return provider
 
 
 settings = Settings()

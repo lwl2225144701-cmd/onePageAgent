@@ -7,6 +7,10 @@ export type CreateTaskInput = {
   audio_url?: string;
   mood: string;
   weather?: Record<string, unknown>;
+  location?: string;
+  city?: string;
+  district?: string;
+  geo?: Record<string, unknown>;
   page_date: string;
 };
 

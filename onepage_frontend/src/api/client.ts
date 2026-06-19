@@ -13,7 +13,7 @@ function getAnonymousUserId() {
 }
 
 export const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api",
+  baseURL: process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api",
   timeout: 30000
 });
 
@@ -34,7 +34,13 @@ export async function unwrap<T>(request: Promise<{ data: UnifiedResponse<T> }>):
 
 export function createEventSource(path: string) {
   const userId = getAnonymousUserId();
-  const url = new URL(`${apiClient.defaults.baseURL}${path}`);
+  const baseURL = String(apiClient.defaults.baseURL ?? "/api");
+  const base = /^https?:\/\//i.test(baseURL)
+    ? baseURL
+    : typeof window !== "undefined"
+      ? `${window.location.origin}${baseURL.startsWith("/") ? baseURL : `/${baseURL}`}`
+      : `http://localhost:3000${baseURL.startsWith("/") ? baseURL : `/${baseURL}`}`;
+  const url = new URL(`${base.replace(/\/+$/, "")}${path}`);
   url.searchParams.set("anonymous_user_id", userId);
   return new EventSource(url.toString());
 }

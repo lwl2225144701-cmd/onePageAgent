@@ -1,6 +1,9 @@
 from celery import Celery
 
 from app.config import settings
+from app.core.logging import setup_logging
+
+setup_logging(settings.DEBUG)
 
 app = Celery(
     "onepage",

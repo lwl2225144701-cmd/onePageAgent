@@ -1,6 +1,8 @@
 import json
 import structlog
 
+from app.config import settings
+
 logger = structlog.get_logger(__name__)
 
 
@@ -14,23 +16,49 @@ async def run_material_matching(ctx: dict) -> dict:
 
     emotion = normalize_emotion(step2.get("primary_emotion", "") or input_json.get("mood", ""))
     style = step3.get("theme", "")
+    content_text = input_json.get("text", "") or input_json.get("content_text", "")
+    sub_scene = step1_sub_scene(step1)
+    journal_context = ctx.get("journal_context", {}) if isinstance(ctx.get("journal_context"), dict) else {}
+    weather_context = journal_weather_context(journal_context)
     scene = infer_scene(
-        text=input_json.get("text", "") or input_json.get("content_text", ""),
+        text=content_text,
         step1_scene_value=step1_scene(ctx.get("step1", {})),
-        weather=input_json.get("weather", {}).get("weather", "") if isinstance(input_json.get("weather"), dict) else "",
+        step1_sub_scene_value=sub_scene,
+        weather=weather_context["weather"] or "",
     )
-    weather = input_json.get("weather", {}).get("weather", "") if isinstance(input_json.get("weather"), dict) else ""
+    if is_food_text(content_text) or sub_scene == "food_review":
+        scene = "daily_life"
+        sub_scene = "food_review"
+    weather = weather_context["weather"] or ""
     keywords = []
 
     from app.services.material_service import MaterialService
 
     keywords = MaterialService.extract_candidate_keywords(
-        input_json.get("text", "") or input_json.get("content_text", ""),
+        content_text,
         json_text(step1.get("text_analysis", {})),
         " ".join(step2.get("keywords", []) or []),
         input_json.get("mood", ""),
         scene,
+        sub_scene,
         weather,
+    )
+    keywords = dedupe_keywords(
+        [
+            *keywords,
+            *journal_context.get("semantic_tags", []),
+            *journal_context.get("recommended_material_tags", []),
+        ]
+    )
+    print(
+        "STEP4_WEATHER_CONTEXT "
+        f"task_id={ctx.get('task_id')} "
+        f"weather={weather or 'unknown'} "
+        f"weather_icon={weather_context['weather_icon'] or ''} "
+        f"location={weather_context['location'] or ''} "
+        "source=mcp "
+        f"tool_success={str(weather_context['tool_success']).lower()}",
+        flush=True,
     )
 
     for attempt in range(1, 3):
@@ -43,6 +71,9 @@ async def run_material_matching(ctx: dict) -> dict:
                 weather=weather,
                 keywords=keywords,
             )
+            summary = candidates.get("summary", {}) if isinstance(candidates.get("summary"), dict) else {}
+            summary["sub_scene"] = sub_scene
+            candidates["summary"] = summary
             annotate_layout_suggestions(candidates, emotion=emotion, scene=scene, style=style)
             recall_summary = summarize_recall_candidates(candidates)
             logger.info(
@@ -51,6 +82,7 @@ async def run_material_matching(ctx: dict) -> dict:
                 input_text=(input_json.get("text", "") or input_json.get("content_text", ""))[:180],
                 emotion=emotion,
                 scene=scene,
+                sub_scene=sub_scene,
                 style=style,
                 weather=weather,
                 keywords=keywords,
@@ -58,20 +90,21 @@ async def run_material_matching(ctx: dict) -> dict:
                 group_counts=recall_summary["group_counts"],
             )
             print(
-                f"STEP4_RECALL task_id={ctx.get('task_id')} total={recall_summary['total_candidates']} groups={recall_summary['group_counts']}",
+                f"STEP4_RECALL task_id={ctx.get('task_id')} scene={scene} sub_scene={sub_scene} total={recall_summary['total_candidates']} groups={recall_summary['group_counts']}",
                 flush=True,
             )
-            print(
-                f"STEP4_CANDIDATES task_id={ctx.get('task_id')} items={json.dumps(summarize_candidate_links(candidates), ensure_ascii=False)}",
-                flush=True,
-            )
+            if settings.LOG_FULL_CANDIDATES:
+                print(
+                    f"STEP4_CANDIDATE_NAMES task_id={ctx.get('task_id')} items={json.dumps(summarize_candidate_names(candidates), ensure_ascii=False)}",
+                    flush=True,
+                )
             return candidates
         except Exception as exc:
             logger.warning("step4_material_failed", attempt=attempt, error=str(exc))
             print(f"STEP4_FAILED task_id={ctx.get('task_id')} attempt={attempt} error={str(exc)[:240]}", flush=True)
             await dispose_db_engine()
 
-    return {"summary": {"emotion": emotion, "scene": scene, "style": style, "weather": weather, "keywords": keywords}, "groups": []}
+    return {"summary": {"emotion": emotion, "scene": scene, "sub_scene": sub_scene, "style": style, "weather": weather, "keywords": keywords}, "groups": []}
 
 
 async def retrieve_candidates(
@@ -142,7 +175,9 @@ def normalize_emotion(value: str) -> str:
     return mapping.get(text, str(value or "").strip())
 
 
-def infer_scene(*, text: str, step1_scene_value: str, weather: str) -> str:
+def infer_scene(*, text: str, step1_scene_value: str, step1_sub_scene_value: str = "", weather: str) -> str:
+    if step1_sub_scene_value == "food_review" or is_food_text(text):
+        return "daily_life"
     if step1_scene_value:
         return step1_scene_value
 
@@ -162,6 +197,45 @@ def infer_scene(*, text: str, step1_scene_value: str, weather: str) -> str:
     return ""
 
 
+FOOD_SCENE_TOKENS = (
+    "铁锅炖",
+    "饺子",
+    "饺子店",
+    "好吃",
+    "美食",
+    "吃了",
+    "餐厅",
+    "用餐",
+    "餐饮",
+    "点赞",
+    "好评",
+    "咖啡",
+    "奶茶",
+    "火锅",
+    "烧烤",
+    "小龙虾",
+    "饭",
+    "菜",
+    "甜品",
+)
+
+
+def is_food_text(text: str) -> bool:
+    lowered = str(text or "").lower()
+    return any(token.lower() in lowered for token in FOOD_SCENE_TOKENS)
+
+
+def step1_sub_scene(step1: dict) -> str:
+    if isinstance(step1, dict):
+        value = str(step1.get("sub_scene") or "").strip()
+        if value:
+            return value
+        text_analysis = step1.get("text_analysis", {})
+        if isinstance(text_analysis, dict):
+            return str(text_analysis.get("sub_scene") or "").strip()
+    return ""
+
+
 def json_text(value: dict) -> str:
     if not isinstance(value, dict):
         return ""
@@ -173,6 +247,29 @@ def json_text(value: dict) -> str:
         elif data:
             parts.append(str(data))
     return " ".join(parts)
+
+
+def journal_weather_context(journal_context: dict) -> dict:
+    weather_data = journal_context.get("weather", {}) if isinstance(journal_context.get("weather"), dict) else {}
+    location_data = journal_context.get("location", {}) if isinstance(journal_context.get("location"), dict) else {}
+    weather_success = bool(journal_context.get("weather_success") and weather_data.get("text"))
+    return {
+        "weather": str(weather_data.get("text") or "").strip() if weather_success else "",
+        "weather_icon": str(weather_data.get("icon") or "").strip() if weather_success else "",
+        "location": str(location_data.get("city") or location_data.get("input_location") or "").strip(),
+        "tool_success": bool(journal_context.get("tool_success", journal_context.get("ok"))),
+    }
+
+
+def dedupe_keywords(values: list) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if item and item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
 
 
 def summarize_recall_candidates(candidates: dict) -> dict:
@@ -226,6 +323,28 @@ def summarize_candidate_links(candidates: dict) -> dict[str, list[dict]]:
                 "importance": item.get("importance"),
                 "preview_url": item.get("preview_url"),
                 "file_url": item.get("file_url"),
+            }
+            for item in items
+        ]
+
+    return result
+
+
+def summarize_candidate_names(candidates: dict) -> dict[str, list[dict]]:
+    groups = candidates.get("groups", []) if isinstance(candidates, dict) else []
+    result: dict[str, list[dict]] = {}
+
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        material_type = str(group.get("material_type", "")).strip() or "unknown"
+        items = group.get("items", []) if isinstance(group.get("items"), list) else []
+        result[material_type] = [
+            {
+                "material_id": item.get("material_id"),
+                "name": item.get("display_name") or item.get("origin_path"),
+                "category": item.get("category"),
+                "role": item.get("suggested_role"),
             }
             for item in items
         ]

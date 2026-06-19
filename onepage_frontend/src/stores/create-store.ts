@@ -18,7 +18,7 @@ export const useCreateStore = create<CreateState>((set) => ({
   mood: "平静",
   imageFiles: [],
   imageUrls: [],
-  weather: { weather: "晴", temperature: 26 },
+  weather: { weather: "晴", temperature: 26, location: "上海市 静安区", city: "上海市", district: "静安区" },
   setText: (text) => set({ text }),
   setMood: (mood) => set({ mood }),
   setImageFiles: (imageFiles) => set({ imageFiles }),

@@ -15,7 +15,8 @@ class SSEService:
         self.redis = redis_client
 
     async def publish_progress(self, task_id: str, step: int, step_name: str, status: str, progress: int):
-        logger.debug("sse_publish_start", task_id=task_id, step=step, step_name=step_name, status=status, progress=progress)
+        if settings.LOG_SSE_PROGRESS:
+            logger.debug("sse_publish_start", task_id=task_id, step=step, step_name=step_name, status=status, progress=progress)
         event_data = json.dumps(
             {
                 "task_id": task_id,
@@ -33,7 +34,8 @@ class SSEService:
             settings.SSE_TTL,
             json.dumps({"status": status, "progress": progress, "step": step, "step_name": step_name}, ensure_ascii=False),
         )
-        logger.debug("sse_publish_done", task_id=task_id, step=step, status=status, progress=progress)
+        if settings.LOG_SSE_PROGRESS:
+            logger.debug("sse_publish_done", task_id=task_id, step=step, status=status, progress=progress)
 
     async def subscribe(self, task_id: str):
         pubsub = self.redis.pubsub()

@@ -12,3 +12,13 @@
 
 # Env
 **/.env
+**/.env.local
+**/.env.*
+!**/.env.example
+
+# Local tooling / runtime output
+.idea/
+*.log
+*.out
+*~
+*.egg-info/

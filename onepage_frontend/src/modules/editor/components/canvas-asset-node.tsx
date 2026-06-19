@@ -17,6 +17,9 @@ type CanvasAssetNodeProps = {
   height: number;
   rotation: number;
   opacity?: number;
+  elementType?: string;
+  materialId?: string;
+  taskId?: string;
   selected: boolean;
   onSelect: () => void;
   onPositionChange: (x: number, y: number) => void;
@@ -35,6 +38,9 @@ export function CanvasAssetNode({
   height,
   rotation,
   opacity = 1,
+  elementType = "image",
+  materialId,
+  taskId,
   selected,
   onSelect,
   onPositionChange,
@@ -42,20 +48,40 @@ export function CanvasAssetNode({
   registerNode,
 }: CanvasAssetNodeProps) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [imageError, setImageError] = useState(false);
 
   useEffect(() => {
+    setImage(null);
+    setImageError(false);
     if (!url) {
-      setImage(null);
       return;
     }
+    let active = true;
     const next = new window.Image();
     next.crossOrigin = "anonymous";
+    next.onload = () => {
+      if (!active) return;
+      setImage(next);
+    };
+    next.onerror = () => {
+      if (!active) return;
+      setImage(null);
+      setImageError(true);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("MATERIAL_IMAGE_LOAD_FAILED", {
+          material_id: materialId ?? id,
+          element_type: elementType,
+          url,
+          task_id: taskId || undefined,
+        });
+      }
+    };
     next.src = url;
-    next.onload = () => setImage(next);
     return () => {
+      active = false;
       setImage(null);
     };
-  }, [url]);
+  }, [elementType, id, materialId, taskId, url]);
 
   const commonProps = {
     ref: registerNode,
@@ -94,17 +120,8 @@ export function CanvasAssetNode({
     },
   } as const;
 
-  if (!image) {
-    return (
-      <Rect
-        key={id}
-        {...commonProps}
-        fill="#f1e2cf"
-        stroke={selected ? "#c99a66" : "#eadbca"}
-        strokeWidth={selected ? 8 : 0}
-        cornerRadius={18}
-      />
-    );
+  if (!image || imageError) {
+    return null;
   }
 
   const naturalRatio = image.naturalWidth > 0 && image.naturalHeight > 0 ? image.naturalWidth / image.naturalHeight : width / Math.max(1, height);

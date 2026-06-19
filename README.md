@@ -105,6 +105,17 @@ make logs
 http://127.0.0.1:8000
 ```
 
+AI 视觉审稿默认使用阿里云百炼 OpenAI 兼容接口；未配置 Key 时会自动退回规则审稿，不会阻断生成链路。
+
+```env
+DASHSCOPE_API_KEY=
+DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+VISION_REVIEW_PROVIDER=dashscope
+VISION_REVIEW_MODEL=qwen3-omni-flash
+```
+
+天气和地点上下文由 MCP 工具提供。无有效地点时，后端会先尝试自动定位，再按 `DEFAULT_WEATHER_LOCATION` 降级；仍失败时只保留日期时间，不让模型编造天气。
+
 ### 2. 前端
 
 ```bash

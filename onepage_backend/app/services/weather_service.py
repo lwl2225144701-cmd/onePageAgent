@@ -5,7 +5,7 @@ import redis.asyncio as aioredis
 
 from app.config import settings
 
-FALLBACK_WEATHER = {"weather": "晴", "temperature": None, "location": "未知"}
+FALLBACK_WEATHER = {"weather": "unknown", "temperature": None, "location": "未知"}
 
 
 class WeatherService:
@@ -43,7 +43,7 @@ class WeatherService:
     def _parse_response(self, data: dict) -> dict:
         # Generic parser; override per actual API used (e.g., QWeather, Caiyun)
         return {
-            "weather": str(data.get("weather", data.get("text", "晴"))),
+            "weather": str(data.get("weather", data.get("text", "unknown"))),
             "temperature": data.get("temperature", data.get("temp")),
             "location": str(data.get("location", data.get("city", "未知"))),
             "humidity": data.get("humidity"),

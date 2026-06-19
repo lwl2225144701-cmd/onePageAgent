@@ -15,6 +15,7 @@ from app.core.minio import minio_compose_object, minio_presigned_put_url, minio_
 from app.models.material import Material
 from app.models.material_user_state import MaterialUserState
 from app.services.material_catalog import infer_quality_profile
+from app.services.material_urls import build_material_proxy_url
 
 
 class MaterialService:
@@ -56,17 +57,7 @@ class MaterialService:
         self.db = db
 
     def build_material_proxy_url(self, material: Material, variant: str, user_id: str | None = None) -> str:
-        base = settings.PUBLIC_API_BASE_URL.rstrip("/")
-        url = f"{base}/materials/{material.id}/{variant}"
-        params: list[str] = []
-        if user_id:
-            params.append(f"anonymous_user_id={user_id}")
-        version_source = getattr(material, "updated_at", None) or getattr(material, "created_at", None)
-        if version_source is not None:
-            params.append(f"v={int(version_source.timestamp())}")
-        if params:
-            url = f"{url}?{'&'.join(params)}"
-        return url
+        return build_material_proxy_url(material, variant, user_id)
 
     async def _attach_user_state(self, materials: list[Material], user_id: str | None) -> list[Material]:
         if not materials or not user_id:

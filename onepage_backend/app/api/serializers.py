@@ -1,11 +1,11 @@
 from typing import Any
 
-from app.config import settings
 from app.schemas.common import PaginatedResponse, PaginationMeta
 from app.schemas.journal import JournalDetailResponse, JournalResponse
 from app.schemas.material import MaterialGroup, MaterialResponse
 from app.schemas.page import ElementResponse, PageBriefResponse, PageDetailResponse, PageResponse
 from app.schemas.preference import UserPreferenceResponse
+from app.services.material_urls import build_material_proxy_urls
 
 
 def to_paginated_response(*, items: list[Any], page: int, size: int, total: int) -> PaginatedResponse[Any]:
@@ -16,30 +16,17 @@ def to_paginated_response(*, items: list[Any], page: int, size: int, total: int)
     )
 
 
-def _build_material_proxy_url(material, variant: str, user_id: str | None = None) -> str:
-    base = settings.PUBLIC_API_BASE_URL.rstrip("/")
-    url = f"{base}/materials/{material.id}/{variant}"
-    params: list[str] = []
-    if user_id:
-        params.append(f"anonymous_user_id={user_id}")
-    version_source = getattr(material, "updated_at", None) or getattr(material, "created_at", None)
-    if version_source is not None:
-        params.append(f"v={int(version_source.timestamp())}")
-    if params:
-        url = f"{url}?{'&'.join(params)}"
-    return url
-
-
 def to_material_response(material, user_id: str | None = None) -> MaterialResponse:
     state = getattr(material, "_user_state", None)
+    preview_url, file_url = build_material_proxy_urls(material, user_id)
     return MaterialResponse(
         id=str(material.id),
         material_type=material.material_type,
         style_tags=material.style_tags,
         emotion_tags=material.emotion_tags,
         scene_tags=material.scene_tags,
-        file_url=_build_material_proxy_url(material, "asset", user_id),
-        preview_url=_build_material_proxy_url(material, "preview", user_id),
+        file_url=file_url,
+        preview_url=preview_url,
         raw_file_url=(material.meta_info or {}).get("raw_file_url", material.file_url),
         mime_type=(material.meta_info or {}).get("mime_type"),
         meta_info=material.meta_info,

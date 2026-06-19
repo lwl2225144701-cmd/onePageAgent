@@ -12,6 +12,13 @@ from app.core.redis import close_redis, get_redis
 from app.models.base import Base
 
 
+def _cors_origins() -> list[str]:
+    raw = settings.CORS_ALLOWED_ORIGINS
+    origins = [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
+    print(f"CORS_CONFIG_LOADED origins={origins}", flush=True)
+    return origins
+
+
 @asynccontextmanager
 async def lifespan(ap: FastAPI):
     setup_logging(settings.DEBUG)
@@ -32,10 +39,19 @@ def create_app() -> FastAPI:
 
     ap.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_cors_origins(),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[
+            "Content-Disposition",
+            "Content-Length",
+            "Content-Type",
+            "ETag",
+            "Last-Modified",
+            "Accept-Ranges",
+            "Content-Range",
+        ],
     )
     ap.add_middleware(RequestIDMiddleware)
     ap.add_middleware(RequestLoggingMiddleware)
