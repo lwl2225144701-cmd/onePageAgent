@@ -12,7 +12,22 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 
-load_dotenv(Path(__file__).with_name(".env"))
+MCP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = MCP_DIR.parents[1]
+
+
+def _load_env_files() -> None:
+    # Keep onepage_backend/.env as the primary local config. The MCP-local .env
+    # remains supported as a legacy fallback when people run this tool standalone.
+    for env_file in (
+        PROJECT_ROOT / "onepage_backend" / ".env",
+        PROJECT_ROOT / ".env",
+        MCP_DIR / ".env",
+    ):
+        load_dotenv(env_file, override=False)
+
+
+_load_env_files()
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 MCP_HOST = os.getenv("MCP_HOST") or os.getenv("MCP_HTTP_HOST") or "127.0.0.1"

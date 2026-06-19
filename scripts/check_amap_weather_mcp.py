@@ -6,10 +6,22 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 
+ROOT = Path(__file__).resolve().parents[1]
+BACKEND = ROOT / "onepage_backend"
 DEFAULT_MCP_URL = "http://127.0.0.1:8001/mcp"
+
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(BACKEND / ".env", override=False)
+    load_dotenv(ROOT / ".env", override=False)
+except Exception:
+    pass
 
 
 async def main() -> int:

@@ -93,6 +93,25 @@ async def run_material_matching(ctx: dict) -> dict:
                 f"STEP4_RECALL task_id={ctx.get('task_id')} scene={scene} sub_scene={sub_scene} total={recall_summary['total_candidates']} groups={recall_summary['group_counts']}",
                 flush=True,
             )
+            print(
+                "ONEPAGE_CONTEXT_EXTRACTED "
+                f"task_id={ctx.get('task_id')} scene={scene} sub_scene={sub_scene} "
+                f"emotion={emotion} weather={weather or 'unknown'} keywords={json.dumps(keywords, ensure_ascii=False)}",
+                flush=True,
+            )
+            print(
+                "ONEPAGE_WEATHER_RESOLVED "
+                f"task_id={ctx.get('task_id')} weather={weather or 'unknown'} "
+                f"location={weather_context['location'] or ''} success={str(weather_context['tool_success']).lower()}",
+                flush=True,
+            )
+            print(
+                "ONEPAGE_MATERIAL_CANDIDATES "
+                f"task_id={ctx.get('task_id')} total={recall_summary['total_candidates']} "
+                f"groups={json.dumps(recall_summary['group_counts'], ensure_ascii=False)} "
+                f"roles={json.dumps(summary.get('role_counts', {}), ensure_ascii=False)}",
+                flush=True,
+            )
             if settings.LOG_FULL_CANDIDATES:
                 print(
                     f"STEP4_CANDIDATE_NAMES task_id={ctx.get('task_id')} items={json.dumps(summarize_candidate_names(candidates), ensure_ascii=False)}",

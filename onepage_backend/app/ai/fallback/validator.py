@@ -7,7 +7,7 @@ VALID_FONTS = {"handwriting", "serif", "sans-serif", "brush"}
 
 
 class LayoutValidator:
-    def validate(self, layout: dict) -> list[str]:
+    def validate(self, layout: dict, asset_context: dict | None = None) -> list[str]:
         errors = []
 
         if not isinstance(layout, dict):
@@ -20,8 +20,11 @@ class LayoutValidator:
         if "page" in layout:
             errors.extend(self._validate_page(layout["page"]))
 
+        page = layout.get("page", {}) if isinstance(layout.get("page"), dict) else {}
+        page_w = self._safe_int(page.get("width", 1080), 1080)
+        page_h = self._safe_int(page.get("height", 1920), 1920)
         if "elements" in layout:
-            errors.extend(self._validate_elements(layout["elements"]))
+            errors.extend(self._validate_elements(layout["elements"], page_w, page_h, asset_context or {}))
 
         if "style" in layout:
             errors.extend(self._validate_style(layout["style"]))
@@ -46,7 +49,7 @@ class LayoutValidator:
 
         return errors
 
-    def _validate_elements(self, elements: list) -> list[str]:
+    def _validate_elements(self, elements: list, page_w: int, page_h: int, asset_context: dict) -> list[str]:
         errors = []
         if not isinstance(elements, list):
             return ["'elements' must be an array"]
@@ -62,22 +65,27 @@ class LayoutValidator:
                 errors.append(f"elements[{i}].props is required")
             if "z_index" not in el:
                 errors.append(f"elements[{i}].z_index is required")
-            errors.extend(self._validate_coordinates(i, el))
+            errors.extend(self._validate_coordinates(i, el, page_w, page_h))
 
-        errors.extend(self._validate_overlaps(elements))
+        if len(elements) > 12:
+            errors.append(f"elements count {len(elements)} exceeds recommended maximum 12")
+        errors.extend(self._validate_composition(elements, page_w, page_h))
+        errors.extend(self._validate_material_allowlist(elements, asset_context))
         return errors
 
-    def _validate_coordinates(self, index: int, el: dict) -> list[str]:
+    def _validate_coordinates(self, index: int, el: dict, page_w: int, page_h: int) -> list[str]:
         props = el.get("props")
         if not isinstance(props, dict):
             return [f"elements[{index}].props must be an object"]
 
-        page_w = 1080
-        page_h = 1920
         x = props.get("x")
         y = props.get("y")
         w = props.get("w")
         h = props.get("h")
+        x_val = None
+        y_val = None
+        w_val = None
+        h_val = None
 
         errors = []
         if x is not None:
@@ -108,6 +116,10 @@ class LayoutValidator:
                     errors.append(f"elements[{index}].props.h {h_val} out of range (1-{page_h})")
             except (TypeError, ValueError):
                 errors.append(f"elements[{index}].props.h must be numeric")
+        if x_val is not None and w_val is not None and x_val + w_val > page_w:
+            errors.append(f"elements[{index}].props.x+w {x_val + w_val} exceeds page width {page_w}")
+        if y_val is not None and h_val is not None and y_val + h_val > page_h:
+            errors.append(f"elements[{index}].props.y+h {y_val + h_val} exceeds page height {page_h}")
 
         return errors
 
@@ -127,26 +139,106 @@ class LayoutValidator:
 
         return errors
 
-    def _validate_overlaps(self, elements: list) -> list[str]:
-        boxes = []
-        for index, el in enumerate(elements):
-            if not isinstance(el, dict):
+    def _validate_composition(self, elements: list, page_w: int, page_h: int) -> list[str]:
+        errors: list[str] = []
+        indexed = [(index, item, self._element_box(item)) for index, item in enumerate(elements) if isinstance(item, dict)]
+        indexed = [(index, item, box) for index, item, box in indexed if box is not None]
+
+        for index, element, box in indexed:
+            props = element.get("props", {}) if isinstance(element.get("props"), dict) else {}
+            role = str(props.get("role") or "")
+            if role == "background" or (self._is_background_like(element, box) and props.get("opacity") is not None):
+                try:
+                    opacity = float(props.get("opacity", 1))
+                except (TypeError, ValueError):
+                    opacity = 1
+                if opacity > 0.2:
+                    errors.append(f"elements[{index}] background opacity {opacity} exceeds 0.2")
+            if box[2] > page_w or box[3] > page_h:
+                errors.append(f"elements[{index}] content box exceeds page bounds")
+
+        tags = [(i, e, b) for i, e, b in indexed if e.get("type") in {"date_tag", "mood_tag", "weather_tag"}]
+        errors.extend(self._pair_overlap_errors(tags, "header tags overlap", min_ratio=0.01))
+
+        titles = [(i, e, b) for i, e, b in indexed if e.get("type") == "text" and self._text_role(e) == "title"]
+        bodies = [(i, e, b) for i, e, b in indexed if e.get("type") == "text" and self._text_role(e) == "body"]
+        errors.extend(self._cross_overlap_errors(titles, bodies, "title overlaps body", min_ratio=0.01))
+
+        focal = [(i, e, b) for i, e, b in indexed if self._element_role(e) == "focal_sticker"]
+        errors.extend(self._cross_overlap_errors(focal, bodies, "focal sticker covers body", min_ratio=0.04))
+
+        decorations = [
+            (i, e, b)
+            for i, e, b in indexed
+            if e.get("type") == "decoration" and self._element_role(e) not in {"frame", "background"}
+        ]
+        errors.extend(self._cross_overlap_errors(decorations, focal, "decoration covers focal subject", min_ratio=0.2))
+        return errors
+
+    def _validate_material_allowlist(self, elements: list, asset_context: dict) -> list[str]:
+        if not isinstance(asset_context, dict):
+            return []
+        selected = [item for item in asset_context.get("selected_materials", []) if isinstance(item, dict)]
+        if not selected:
+            return []
+        allowed_ids = {str(item.get("material_id") or "") for item in selected if item.get("material_id")}
+        allowed_urls = {
+            str(item.get(key))
+            for item in selected
+            for key in ("file_url", "preview_url", "raw_file_url")
+            if item.get(key)
+        }
+        allowed_urls.update(str(url) for url in asset_context.get("input_image_urls", []) if url)
+        errors: list[str] = []
+        for index, element in enumerate(elements):
+            if not isinstance(element, dict) or element.get("type") not in {"image", "sticker", "decoration"}:
                 continue
-            props = el.get("props", {})
-            if not isinstance(props, dict):
-                continue
-            box = self._element_box(el)
-            if box is None:
-                continue
-            left, top, right, bottom = box
-            current_background = self._is_background_like(el, box)
-            for prev_index, prev_box, prev_background in boxes:
-                if current_background or prev_background:
-                    continue
-                if not (right <= prev_box[0] or left >= prev_box[2] or bottom <= prev_box[1] or top >= prev_box[3]):
-                    return [f"elements[{index}] overlaps elements[{prev_index}]"]
-            boxes.append((index, box, current_background))
-        return []
+            props = element.get("props", {}) if isinstance(element.get("props"), dict) else {}
+            material_id = str(props.get("material_id") or "")
+            url = str(props.get("url") or "")
+            if material_id and material_id not in allowed_ids:
+                errors.append(f"elements[{index}] material_id is not in selected_materials")
+            if url and url not in allowed_urls:
+                errors.append(f"elements[{index}] url is not in selected_materials")
+            if url in allowed_urls and url not in asset_context.get("input_image_urls", []) and not material_id:
+                errors.append(f"elements[{index}] selected material is missing props.material_id")
+        return errors
+
+    def _pair_overlap_errors(self, items: list, message: str, *, min_ratio: float) -> list[str]:
+        errors: list[str] = []
+        for offset, (left_index, _, left_box) in enumerate(items):
+            for right_index, _, right_box in items[offset + 1 :]:
+                if self._overlap_ratio(left_box, right_box) > min_ratio:
+                    errors.append(f"elements[{left_index}] {message} elements[{right_index}]")
+        return errors
+
+    def _cross_overlap_errors(self, left_items: list, right_items: list, message: str, *, min_ratio: float) -> list[str]:
+        errors: list[str] = []
+        for left_index, _, left_box in left_items:
+            for right_index, _, right_box in right_items:
+                if self._overlap_ratio(left_box, right_box) > min_ratio:
+                    errors.append(f"elements[{left_index}] {message} elements[{right_index}]")
+        return errors
+
+    def _overlap_ratio(self, left: tuple[float, float, float, float], right: tuple[float, float, float, float]) -> float:
+        overlap_w = max(0.0, min(left[2], right[2]) - max(left[0], right[0]))
+        overlap_h = max(0.0, min(left[3], right[3]) - max(left[1], right[1]))
+        overlap_area = overlap_w * overlap_h
+        left_area = max(1.0, (left[2] - left[0]) * (left[3] - left[1]))
+        right_area = max(1.0, (right[2] - right[0]) * (right[3] - right[1]))
+        return overlap_area / min(left_area, right_area)
+
+    def _text_role(self, element: dict) -> str:
+        props = element.get("props", {}) if isinstance(element.get("props"), dict) else {}
+        role = str(props.get("role") or "")
+        if role:
+            return role
+        size = self._safe_int(props.get("size", 42), 42)
+        return "title" if size >= 52 else "body"
+
+    def _element_role(self, element: dict) -> str:
+        props = element.get("props", {}) if isinstance(element.get("props"), dict) else {}
+        return str(props.get("role") or "")
 
     def _element_box(self, el: dict) -> tuple[float, float, float, float] | None:
         props = el.get("props", {})

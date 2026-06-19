@@ -15,7 +15,17 @@
 
 ## 环境变量
 
-复制 `.env.example` 为 `.env`，高德 Key 和 MCP 监听配置都从本地 `.env` 读取，启动命令里不需要再显式传 Key。
+默认推荐把高德 Key 和 MCP 监听配置统一维护在项目的 `onepage_backend/.env`，启动命令里不需要再显式传 Key。仓库不再维护 MCP 子目录的重复 `.env.example`，需要示例时直接看 `onepage_backend/.env.example`。
+
+`mcp/amap_weather/.env` 仍然兼容，但只建议在单独调试 MCP 服务时临时覆盖使用；日常不要在这里维护第二份配置。
+
+MCP 服务读取顺序如下，先读到的值优先：
+
+1. `onepage_backend/.env`
+2. 项目根目录 `.env`
+3. `mcp/amap_weather/.env`（仅单独调试时使用）
+
+建议在 `onepage_backend/.env` 中维护：
 
 ```bash
 AMAP_WEB_SERVICE_KEY=你的高德Web服务Key
@@ -28,7 +38,7 @@ DEFAULT_TIMEZONE=Asia/Shanghai
 
 说明：
 
-- `AMAP_WEB_SERVICE_KEY`：高德 Web 服务 Key，放在本地 `.env`，不要提交到 Git。
+- `AMAP_WEB_SERVICE_KEY`：高德 Web 服务 Key，放在本地 `onepage_backend/.env`，不要提交到 Git。
 - `MCP_TRANSPORT`：`stdio` 或 `http`，默认 `http`。
 - `MCP_HOST` / `MCP_PORT` / `MCP_PATH`：`http` 模式监听地址和 MCP 路径，默认 `127.0.0.1:8001/mcp`。
 - `MCP_HTTP_HOST` / `MCP_HTTP_PORT`：兼容旧变量，优先级低于 `MCP_HOST` / `MCP_PORT`。
@@ -59,11 +69,11 @@ cd /项目路径/mcp/amap_weather
 python server.py
 ```
 
-如果 `.env` 中已经配置了 `MCP_TRANSPORT=http`、`MCP_HOST=127.0.0.1`、`MCP_PORT=8001` 和 `MCP_PATH=/mcp`，HTTP 模式只需要执行 `python server.py`。
+如果 `onepage_backend/.env` 中已经配置了 `MCP_TRANSPORT=http`、`MCP_HOST=127.0.0.1`、`MCP_PORT=8001` 和 `MCP_PATH=/mcp`，HTTP 模式只需要执行 `python server.py`。
 
 `http` 模式使用 MCP SDK 的 `streamable-http` 传输，不额外引入 FastAPI 或 Flask。
 
-业务后端和 Celery Worker 使用同一个地址：
+业务后端、Celery Worker 和连通性检查脚本使用同一个地址：
 
 ```bash
 AMAP_WEATHER_MCP_URL=http://127.0.0.1:8001/mcp
@@ -76,8 +86,10 @@ MCP_TOOL_TIMEOUT_SECONDS=10
 
 ```bash
 cd /项目路径
-AMAP_WEATHER_MCP_URL=http://127.0.0.1:8001/mcp python scripts/check_amap_weather_mcp.py
+python scripts/check_amap_weather_mcp.py
 ```
+
+检查脚本会读取 `onepage_backend/.env` 中的 `AMAP_WEATHER_MCP_URL` 和 `MCP_TOOL_TIMEOUT_SECONDS`。
 
 ## MCP 客户端注册示例
 

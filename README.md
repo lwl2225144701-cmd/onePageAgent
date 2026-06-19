@@ -114,7 +114,18 @@ VISION_REVIEW_PROVIDER=dashscope
 VISION_REVIEW_MODEL=qwen3-omni-flash
 ```
 
-天气和地点上下文由 MCP 工具提供。无有效地点时，后端会先尝试自动定位，再按 `DEFAULT_WEATHER_LOCATION` 降级；仍失败时只保留日期时间，不让模型编造天气。
+天气和地点上下文由 MCP 工具提供。MCP 服务、后端和连通性检查脚本默认都读取 `onepage_backend/.env`，所以高德 Key、MCP 监听地址和后端连接地址统一维护在这一份文件里。无有效地点时，后端会先尝试自动定位，再按 `DEFAULT_WEATHER_LOCATION` 降级；仍失败时只保留日期时间，不让模型编造天气。
+
+```env
+AMAP_WEB_SERVICE_KEY=
+MCP_TRANSPORT=http
+MCP_HOST=127.0.0.1
+MCP_PORT=8001
+MCP_PATH=/mcp
+AMAP_WEATHER_MCP_URL=http://127.0.0.1:8001/mcp
+MCP_TOOL_TIMEOUT_SECONDS=10
+DEFAULT_WEATHER_LOCATION=深圳
+```
 
 ### 2. 前端
 
@@ -154,7 +165,11 @@ make migration-create NAME="your migration name"
 
 ## 环境变量
 
-后端读取 `onepage_backend/.env`。主要配置项包括：
+运行时配置统一以 `onepage_backend/.env` 为主，默认模板维护在 `onepage_backend/.env.example`。后端 `app/config.py` 只负责声明 Pydantic Settings 类型、读取环境变量和做校验；默认值来自 `.env.example`，本地真实值由项目根 `.env` 或 `onepage_backend/.env` 覆盖。业务代码统一从 `app.config import settings` 获取最终配置。MCP 服务也会优先读取同一份 backend 配置。
+
+前端的 `onepage_frontend/.env.example` 只保留 `NEXT_PUBLIC_API_BASE_URL`，这是 Next.js 浏览器端公开变量，不和后端密钥配置合并。`tsconfig`、`tailwind.config`、`next.config`、`pyproject.toml`、`docker-compose.yml` 属于构建/工具配置，不作为运行时密钥配置合并。
+
+主要运行时配置项包括：
 
 - `DATABASE_URL`
 - `REDIS_URL`
@@ -168,7 +183,15 @@ make migration-create NAME="your migration name"
 - `DEEPSEEK_MODEL`
 - `QWEN_API_URL`
 - `QWEN_API_KEY`
+- `DASHSCOPE_API_KEY`
+- `VISION_REVIEW_MODEL`
+- `AMAP_WEB_SERVICE_KEY`
+- `AMAP_WEATHER_MCP_URL`
 - `PUBLIC_API_BASE_URL`
+- `MCP_TRANSPORT`
+- `MCP_HOST`
+- `MCP_PORT`
+- `MCP_PATH`
 
 如果不配置真实 AI Key，后端仍可通过 fallback layout 与本地演示逻辑支撑部分流程。
 

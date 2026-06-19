@@ -297,9 +297,10 @@ class LayoutRepairer:
 
     def _sanitize_asset_urls(self, layout: dict, asset_context: dict) -> dict:
         result = copy.deepcopy(layout)
-        candidate_groups = asset_context.get("groups", []) if isinstance(asset_context, dict) else []
+        candidate_groups = self._candidate_groups(asset_context)
         input_image_urls = asset_context.get("input_image_urls", []) if isinstance(asset_context, dict) else []
         by_type: dict[str, list[str]] = {"background": [], "sticker": [], "decoration": []}
+        by_url: dict[str, dict] = {}
 
         for group in candidate_groups:
             material_type = group.get("material_type")
@@ -309,6 +310,7 @@ class LayoutRepairer:
                 url = str(item.get("file_url") or "").strip()
                 if url and url not in by_type[material_type]:
                     by_type[material_type].append(url)
+                    by_url[url] = item
 
         allowed_image_urls = set(str(url).strip() for url in input_image_urls if str(url).strip())
         allowed_image_urls.update(by_type["background"])
@@ -323,21 +325,25 @@ class LayoutRepairer:
 
             if element_type == "image" and url:
                 if url in allowed_image_urls:
+                    self._bind_material_props(props, by_url.get(url), role="background" if url in by_type["background"] else "")
                     sanitized_elements.append(element)
                     continue
                 replacement = by_type["background"][0] if by_type["background"] else (input_image_urls[0] if input_image_urls else "")
                 if replacement:
                     props["url"] = replacement
+                    self._bind_material_props(props, by_url.get(replacement))
                     sanitized_elements.append(element)
                 continue
 
             if element_type in {"sticker", "decoration"} and url:
                 candidates = by_type[element_type]
                 if url in candidates:
+                    self._bind_material_props(props, by_url.get(url))
                     sanitized_elements.append(element)
                     continue
                 if candidates:
                     props["url"] = candidates[0]
+                    self._bind_material_props(props, by_url.get(candidates[0]))
                     sanitized_elements.append(element)
                 continue
 
@@ -348,7 +354,7 @@ class LayoutRepairer:
 
     def _apply_background_preference(self, layout: dict, asset_context: dict) -> dict:
         result = copy.deepcopy(layout)
-        groups = asset_context.get("groups", []) if isinstance(asset_context, dict) else []
+        groups = self._candidate_groups(asset_context)
         preferred = None
         for group in groups:
             if group.get("material_type") != "background":
@@ -365,10 +371,16 @@ class LayoutRepairer:
         if image_elements:
             image_elements[0].setdefault("props", {})
             image_elements[0]["props"]["url"] = preferred.get("file_url") or preferred.get("preview_url") or image_elements[0]["props"].get("url")
-            image_elements[0]["props"]["x"] = 0
-            image_elements[0]["props"]["y"] = 0
-            image_elements[0]["props"]["w"] = result.get("page", {}).get("width", self.PAGE_W)
-            image_elements[0]["props"]["h"] = min(900, result.get("page", {}).get("height", self.PAGE_H))
+            self._bind_material_props(image_elements[0]["props"], preferred, role="background")
+            page_w = result.get("page", {}).get("width", self.PAGE_W)
+            page_h = result.get("page", {}).get("height", self.PAGE_H)
+            inset = round(page_w * 0.07)
+            image_elements[0]["props"]["x"] = inset
+            image_elements[0]["props"]["y"] = round(page_h * 0.24)
+            image_elements[0]["props"]["w"] = page_w - inset * 2
+            image_elements[0]["props"]["h"] = round(page_h * 0.44)
+            image_elements[0]["props"]["fit"] = "contain"
+            image_elements[0]["props"]["opacity"] = min(self._coerce_float(image_elements[0]["props"].get("opacity"), 0.14), 0.18)
             image_elements[0]["z_index"] = 0
             return result
 
@@ -377,13 +389,15 @@ class LayoutRepairer:
             {
                 "type": "image",
                 "props": {
+                    "material_id": preferred.get("material_id"),
                     "url": preferred.get("file_url") or preferred.get("preview_url"),
-                    "x": 0,
-                    "y": 0,
-                    "w": result.get("page", {}).get("width", self.PAGE_W),
-                    "h": min(900, result.get("page", {}).get("height", self.PAGE_H)),
-                    "fit": "cover",
-                    "borderRadius": 0,
+                    "role": "background",
+                    "x": round(result.get("page", {}).get("width", self.PAGE_W) * 0.07),
+                    "y": round(result.get("page", {}).get("height", self.PAGE_H) * 0.24),
+                    "w": round(result.get("page", {}).get("width", self.PAGE_W) * 0.86),
+                    "h": round(result.get("page", {}).get("height", self.PAGE_H) * 0.44),
+                    "fit": "contain",
+                    "opacity": 0.14,
                 },
                 "z_index": 0,
             },
@@ -393,6 +407,7 @@ class LayoutRepairer:
     def _ensure_minimum_material_elements(self, layout: dict, asset_context: dict) -> dict:
         result = copy.deepcopy(layout)
         candidates = self._asset_candidates_by_type(asset_context)
+        fallback_mode = str(asset_context.get("fallback_mode") or "none") if isinstance(asset_context, dict) else "none"
         elements = result.setdefault("elements", [])
         used_urls = {
             str(element.get("props", {}).get("url") or "").strip()
@@ -404,9 +419,15 @@ class LayoutRepairer:
         sticker_count = sum(1 for element in elements if isinstance(element, dict) and element.get("type") == "sticker")
         decoration_count = sum(1 for element in elements if isinstance(element, dict) and element.get("type") == "decoration")
 
+        sticker_limit = 1 if fallback_mode == "neutral_minimal" else 3
+        decoration_limit = 2 if fallback_mode == "neutral_minimal" else 2
+
         for candidate in self._rank_candidates(candidates.get("sticker", [])):
-            if sticker_count >= 3:
+            if sticker_count >= sticker_limit:
                 break
+            role = str(candidate.get("safe_role") or candidate.get("suggested_role") or "")
+            if fallback_mode == "neutral_minimal" and role == "focal_sticker":
+                continue
             url = str(candidate.get("file_url") or "").strip()
             if not url or url in used_urls:
                 continue
@@ -415,7 +436,7 @@ class LayoutRepairer:
             sticker_count += 1
 
         for candidate in self._rank_candidates(candidates.get("decoration", [])):
-            if decoration_count >= 2:
+            if decoration_count >= decoration_limit:
                 break
             url = str(candidate.get("file_url") or "").strip()
             if not url or url in used_urls:
@@ -485,6 +506,7 @@ class LayoutRepairer:
                 candidate_url = str(candidate.get("file_url") or "").strip()
                 if candidate_url and candidate_url not in used_per_type[element_type]:
                     props["url"] = candidate_url
+                    self._bind_material_props(props, candidate)
                     used_per_type[element_type].add(candidate_url)
                     break
 
@@ -515,7 +537,7 @@ class LayoutRepairer:
 
     def _asset_ratio_map(self, asset_context: dict) -> dict[str, float]:
         result: dict[str, float] = {}
-        for group in asset_context.get("groups", []) if isinstance(asset_context, dict) else []:
+        for group in self._candidate_groups(asset_context):
             for item in group.get("items", []):
                 ratio = self._coerce_ratio(item.get("aspect_ratio"))
                 if not ratio:
@@ -532,7 +554,7 @@ class LayoutRepairer:
 
     def _asset_candidates_by_type(self, asset_context: dict) -> dict[str, list[dict]]:
         result: dict[str, list[dict]] = {"background": [], "sticker": [], "decoration": []}
-        for group in asset_context.get("groups", []) if isinstance(asset_context, dict) else []:
+        for group in self._candidate_groups(asset_context):
             material_type = str(group.get("material_type", "")).strip()
             if material_type in result:
                 result[material_type] = [item for item in group.get("items", []) if isinstance(item, dict)]
@@ -553,13 +575,34 @@ class LayoutRepairer:
         size_hint = str(candidate.get("suggested_size") or "")
         base_size = {"small": 140, "medium": 200, "large": 280}.get(size_hint, 180)
         zone = str(candidate.get("suggested_zone") or "")
+        role = str(candidate.get("safe_role") or candidate.get("suggested_role") or element_type)
+        if role == "frame":
+            inset_x = round(self.PAGE_W * 0.025)
+            inset_y = round(self.PAGE_H * 0.02)
+            return {
+                "type": "decoration",
+                "props": {
+                    "material_id": candidate.get("material_id"),
+                    "url": candidate.get("file_url") or candidate.get("preview_url"),
+                    "role": "frame",
+                    "x": inset_x,
+                    "y": inset_y,
+                    "w": self.PAGE_W - inset_x * 2,
+                    "h": round(self.PAGE_H * 0.92),
+                    "opacity": 0.72,
+                    "rotation": 0,
+                },
+                "z_index": 10,
+            }
         if element_type == "decoration":
             base_size = 180 if size_hint == "small" else 260
         x, y = self._initial_position_for_zone(zone, element_type, index, base_size, base_size)
         return {
             "type": element_type,
             "props": {
+                "material_id": candidate.get("material_id"),
                 "url": candidate.get("file_url") or candidate.get("preview_url"),
+                "role": role,
                 "x": x,
                 "y": y,
                 "w": base_size,
@@ -592,7 +635,7 @@ class LayoutRepairer:
 
     def _asset_metadata_map(self, asset_context: dict) -> dict[str, dict]:
         result: dict[str, dict] = {}
-        for group in asset_context.get("groups", []) if isinstance(asset_context, dict) else []:
+        for group in self._candidate_groups(asset_context):
             for item in group.get("items", []):
                 if not isinstance(item, dict):
                     continue
@@ -602,8 +645,43 @@ class LayoutRepairer:
                         result[url] = item
         return result
 
+    def _candidate_groups(self, asset_context: dict) -> list[dict]:
+        if not isinstance(asset_context, dict):
+            return []
+        if not asset_context.get("selection_enforced"):
+            return asset_context.get("groups", []) if isinstance(asset_context.get("groups"), list) else []
+        selected = [item for item in asset_context.get("selected_materials", []) if isinstance(item, dict)]
+        grouped: dict[str, list[dict]] = {"background": [], "sticker": [], "decoration": []}
+        for item in selected:
+            role = str(item.get("safe_role") or item.get("suggested_role") or "")
+            material_type = str(item.get("material_type") or "")
+            if role == "background" or material_type == "background":
+                grouped["background"].append(item)
+            elif role in {"focal_sticker", "supporting_sticker", "small_decoration"} or material_type == "sticker":
+                grouped["sticker"].append(item)
+            else:
+                grouped["decoration"].append(item)
+        return [{"material_type": key, "items": items} for key, items in grouped.items() if items]
+
+    @staticmethod
+    def _bind_material_props(props: dict, candidate: dict | None, *, role: str = "") -> None:
+        if not isinstance(candidate, dict):
+            return
+        material_id = candidate.get("material_id")
+        if material_id:
+            props["material_id"] = material_id
+        resolved_role = role or candidate.get("safe_role") or candidate.get("suggested_role")
+        if resolved_role:
+            props["role"] = resolved_role
+
     def _apply_size_hint(self, element: dict, metadata: dict, page_w: int, page_h: int) -> None:
         props = element.get("props", {})
+        role = str(metadata.get("safe_role") or metadata.get("suggested_role") or props.get("role") or "")
+        if role == "frame":
+            inset_x = round(page_w * 0.025)
+            inset_y = round(page_h * 0.02)
+            props.update({"x": inset_x, "y": inset_y, "w": page_w - inset_x * 2, "h": round(page_h * 0.92)})
+            return
         size_hint = str(metadata.get("suggested_size") or "").strip()
         ratio = self._coerce_ratio(metadata.get("aspect_ratio"))
         if not ratio:
@@ -634,7 +712,7 @@ class LayoutRepairer:
         h = self._coerce_number(props.get("h", 0), 0) or self._default_element_size(element)[1]
         zone_positions = {
             "full_bleed": (0, 0),
-            "frame": (0, 0),
+            "frame": (round(page_w * 0.025), round(page_h * 0.02)),
             "top": (80, 120),
             "center": ((page_w - w) // 2, 380),
             "lower_center": ((page_w - w) // 2, 760),
@@ -718,6 +796,10 @@ class LayoutRepairer:
         return []
 
     def _is_background_like(self, element: dict, x: int, y: int, w: int, h: int) -> bool:
+        props = element.get("props", {}) if isinstance(element.get("props"), dict) else {}
+        role = str(props.get("role") or "")
+        if role in {"background", "frame"}:
+            return True
         return element.get("type") == "image" and x <= 0 and y <= 0 and w >= 900 and h >= 500
 
     def _protect_text_readability(self, layout: dict) -> dict:
@@ -731,8 +813,13 @@ class LayoutRepairer:
                 continue
             props = element.setdefault("props", {})
             x, y, w, h = self._element_box(element, page_w, page_h)
-            if self._is_background_like(element, x, y, w, h):
-                props["opacity"] = min(self._coerce_float(props.get("opacity"), 1.0), 0.32)
+            role = str(props.get("role") or "")
+            if role == "frame":
+                props["opacity"] = min(self._coerce_float(props.get("opacity"), 0.72), 0.72)
+                element["z_index"] = 10
+                continue
+            if role == "background" or self._is_background_like(element, x, y, w, h):
+                props["opacity"] = min(self._coerce_float(props.get("opacity"), 0.14), 0.18)
                 element["z_index"] = 0
                 continue
             if element.get("type") in text_types:

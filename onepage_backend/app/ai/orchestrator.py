@@ -165,24 +165,18 @@ class AIOrchestrator:
         return await run_content_understanding(ctx)
 
     async def _run_step0_journal_context(self, ctx):
-        from app.ai.mcp_client import get_journal_page_context
+        from app.ai.mcp_client import journal_context_from_input
 
         input_json = ctx.get("input_json", {}) if isinstance(ctx.get("input_json"), dict) else {}
-        location = self._extract_location(input_json)
         print(
             "MCP_CONTEXT_DECISION "
             f"task_id={ctx.get('task_id')} "
-            "required=True "
-            "reason=journal_page_generation "
-            f"location={location or ''} "
-            "tool_call_mode=orchestrator_required",
+            "required=False "
+            "reason=context_prefetched_at_task_creation "
+            "tool_call_mode=reuse_input_snapshot",
             flush=True,
         )
-        return await get_journal_page_context(
-            location=location,
-            timezone=str(input_json.get("timezone") or "Asia/Shanghai"),
-            task_id=ctx.get("task_id"),
-        )
+        return journal_context_from_input(input_json, task_id=ctx.get("task_id"))
 
     async def _run_step2(self, ctx):
         from app.ai.pipeline.step2_sentiment import run_sentiment_analysis
@@ -291,22 +285,6 @@ class AIOrchestrator:
                 }
             )
         return selected
-
-    def _extract_location(self, input_json: dict) -> str | None:
-        candidates: list[object] = [
-            input_json.get("district"),
-            input_json.get("city"),
-            input_json.get("location"),
-            input_json.get("location_name"),
-        ]
-        for key in ("frontend_location", "geo", "weather"):
-            value = input_json.get(key)
-            if isinstance(value, dict):
-                candidates.extend([value.get("district"), value.get("city"), value.get("location"), value.get("name")])
-        for value in candidates:
-            if isinstance(value, str) and value.strip() and value.strip().lower() not in {"未知", "未设置", "未选择", "unknown", "none", "null"}:
-                return value.strip()
-        return None
 
     async def _save_error(self, task_id: str, error: str):
         from sqlalchemy import update

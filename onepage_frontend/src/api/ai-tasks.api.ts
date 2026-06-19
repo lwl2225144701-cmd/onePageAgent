@@ -11,7 +11,7 @@ export type CreateTaskInput = {
   city?: string;
   district?: string;
   geo?: Record<string, unknown>;
-  page_date: string;
+  page_date?: string;
 };
 
 export function createAiTask(input: CreateTaskInput) {

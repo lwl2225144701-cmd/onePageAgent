@@ -5,6 +5,7 @@ import pytest
 from app.ai.gateway.dashscope_vision_client import build_image_data_url
 from app.ai.pipeline.step1_content import build_semantic_result
 from app.ai.pipeline.step4_material import infer_scene
+from app.ai.pipeline.step5_layout import _select_materials_for_layout
 from app.ai.pipeline.step4_material_review import (
     _build_contact_sheet,
     _local_preview_path,
@@ -13,6 +14,10 @@ from app.ai.pipeline.step4_material_review import (
     run_material_review,
 )
 from app.ai.pipeline.step6_repair import apply_final_page_quality_check, apply_semantic_guard
+from app.ai.fallback.repairer import LayoutRepairer
+from app.ai.fallback.validator import LayoutValidator
+from app.models.material import Material
+from app.services.material_service import MaterialService
 
 
 def test_step1_study_semantics_include_avoid_tags():
@@ -55,6 +60,104 @@ def test_step4_food_scene_overrides_family():
     )
 
     assert scene == "daily_life"
+
+
+def test_material_tag_profile_marks_subject_sticker_not_background_safe():
+    svc = MaterialService.__new__(MaterialService)
+    material = Material(
+        material_type="sticker",
+        file_url="http://example.com/cat.png",
+        style_tags=["可爱"],
+        emotion_tags=["治愈"],
+        scene_tags=["日常"],
+        meta_info={
+            "category": "动物",
+            "display_name": "小猫贴纸",
+            "semantic_tags": ["猫", "可爱"],
+            "asset_width": 300,
+            "asset_height": 300,
+        },
+    )
+
+    profile = svc._material_tag_profile(material, quality={"density": "medium", "complexity": "low", "background_safe": None})
+
+    assert profile["suggested_role"] == "focal_sticker"
+    assert profile["background_safe"] is False
+    assert "猫" in profile["keywords"]
+
+
+def test_step5_selects_only_reviewed_candidates_and_respects_minimal():
+    materials = {
+        "fallback_mode": "neutral_minimal",
+        "groups": [
+            {
+                "material_type": "sticker",
+                "items": [
+                    {"material_id": "focal", "file_url": "https://example.com/focal.png", "safe_role": "focal_sticker", "semantic_fit": 0.9, "visual_safety": 0.9},
+                    {"material_id": "support", "file_url": "https://example.com/support.png", "safe_role": "supporting_sticker", "semantic_fit": 0.5, "visual_safety": 0.8},
+                ],
+            },
+            {
+                "material_type": "decoration",
+                "items": [
+                    {"material_id": "d1", "file_url": "https://example.com/d1.png", "semantic_fit": 0.7, "visual_safety": 0.9},
+                    {"material_id": "d2", "file_url": "https://example.com/d2.png", "semantic_fit": 0.6, "visual_safety": 0.9},
+                    {"material_id": "d3", "file_url": "https://example.com/d3.png", "semantic_fit": 0.5, "visual_safety": 0.9},
+                ],
+            },
+        ],
+        "rejected_materials": [{"material_id": "rejected"}],
+    }
+
+    selected = _select_materials_for_layout(materials)
+    selected_ids = [item["material_id"] for item in selected]
+
+    assert "focal" not in selected_ids
+    assert "support" in selected_ids
+    assert "rejected" not in selected_ids
+    assert len([item for item in selected if item["material_id"].startswith("d")]) == 2
+
+
+def test_validator_reports_element_extent_overflow():
+    errors = LayoutValidator().validate(
+        {
+            "page": {"width": 1080, "height": 1920, "background": "#FAF6F0"},
+            "elements": [
+                {"type": "sticker", "props": {"x": 1000, "y": 100, "w": 200, "h": 120}, "z_index": 20}
+            ],
+            "style": {"theme": "healing", "font": "handwriting"},
+        }
+    )
+
+    assert any("x+w" in error for error in errors)
+
+
+def test_repairer_neutral_minimal_does_not_add_focal_sticker():
+    layout = {
+        "page": {"width": 1080, "height": 1920, "background": "#FAF6F0"},
+        "elements": [{"type": "text", "props": {"content": "饺子店真好吃", "x": 80, "y": 400, "w": 800, "h": 120}, "z_index": 30}],
+        "style": {"theme": "healing", "font": "handwriting"},
+    }
+    repaired = LayoutRepairer().repair(
+        __import__("json").dumps(layout, ensure_ascii=False),
+        [],
+        asset_context={
+            "fallback_mode": "neutral_minimal",
+            "groups": [
+                {
+                    "material_type": "sticker",
+                    "items": [
+                        {"file_url": "http://example.com/focal.png", "safe_role": "focal_sticker", "score": 99},
+                        {"file_url": "http://example.com/support.png", "safe_role": "supporting_sticker", "score": 50},
+                    ],
+                }
+            ],
+        },
+    )
+
+    urls = [element.get("props", {}).get("url") for element in repaired["elements"] if isinstance(element.get("props"), dict)]
+    assert "http://example.com/focal.png" not in urls
+    assert "http://example.com/support.png" in urls
 
 
 @pytest.mark.asyncio

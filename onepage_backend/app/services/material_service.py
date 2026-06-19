@@ -20,6 +20,28 @@ from app.services.material_urls import build_material_proxy_url
 
 class MaterialService:
     MATERIAL_PROXY_PATH_RE = re.compile(r"/materials/([0-9a-fA-F-]{36})/(?:asset|preview)(?:\?|$)")
+    LAYOUT_ROLE_LIMITS = {
+        "background": 5,
+        "focal_sticker": 8,
+        "supporting_sticker": 6,
+        "decoration": 5,
+        "frame": 5,
+        "tape": 5,
+    }
+    SUBJECT_BACKGROUND_UNSAFE_TOKENS = {
+        "人物",
+        "人物角色",
+        "人物场景",
+        "猫",
+        "狗",
+        "动物",
+        "熊",
+        "鸡",
+        "食物",
+        "美食",
+        "饺子",
+        "咖啡",
+    }
     SEMANTIC_QUERY_EXPANSIONS = {
         "happy": ["开心", "爱心星星", "花草", "动物", "节日符号"],
         "开心": ["happy", "爱心星星", "花草", "动物", "节日符号"],
@@ -362,22 +384,28 @@ class MaterialService:
             scored.append((score, reasons, material))
 
         scored.sort(key=lambda item: item[0], reverse=True)
-        limits = {"background": 2, "decoration": 6, "sticker": 6}
-        grouped: dict[str, list[dict]] = {key: [] for key in limits}
+        role_grouped: dict[str, list[dict]] = {key: [] for key in self.LAYOUT_ROLE_LIMITS}
         used_ids: set[str] = set()
 
         for score, reasons, material in scored:
             material_id = str(material.id)
             if material_id in used_ids:
                 continue
-            bucket = grouped.get(material.material_type)
-            if bucket is None or len(bucket) >= limits[material.material_type]:
-                continue
             quality = self._material_quality(material)
-            bucket.append(
+            profile = self._material_tag_profile(material, quality=quality)
+            if not self._is_valid_layout_material(material):
+                continue
+            role = self._primary_layout_role(material, profile)
+            if role == "background" and profile["background_safe"] is False:
+                continue
+            bucket = role_grouped.get(role)
+            if bucket is None or len(bucket) >= self.LAYOUT_ROLE_LIMITS[role]:
+                continue
+            item = (
                 {
                     "material_id": material_id,
                     "material_type": material.material_type,
+                    "source_material_type": material.material_type,
                     "file_url": self.build_material_proxy_url(material, "asset", user_id),
                     "preview_url": self.build_material_proxy_url(material, "preview", user_id),
                     "raw_file_url": (material.meta_info or {}).get("raw_file_url", material.file_url),
@@ -398,10 +426,14 @@ class MaterialService:
                     "background_safe": quality["background_safe"],
                     "score": score,
                     "match_reasons": reasons,
+                    "matched_tags": self._matched_tags_for_material(material, keyword_list, emotion=emotion, scene=scene, style=style, weather=weather),
+                    **profile,
                 }
             )
+            bucket.append(item)
             used_ids.add(material_id)
 
+        grouped = self._legacy_groups_from_roles(role_grouped)
         return {
             "summary": {
                 "emotion": emotion or "",
@@ -409,9 +441,146 @@ class MaterialService:
                 "style": style or "",
                 "weather": weather or "",
                 "keywords": keyword_list,
+                "role_counts": {role: len(items) for role, items in role_grouped.items()},
+                "role_limits": dict(self.LAYOUT_ROLE_LIMITS),
             },
+            "role_groups": [{"role": key, "items": value} for key, value in role_grouped.items() if value],
             "groups": [{"material_type": key, "items": value} for key, value in grouped.items() if value],
         }
+
+    def _legacy_groups_from_roles(self, role_grouped: dict[str, list[dict]]) -> dict[str, list[dict]]:
+        grouped: dict[str, list[dict]] = {"background": [], "sticker": [], "decoration": []}
+        grouped["background"] = role_grouped.get("background", [])
+        grouped["sticker"] = [*role_grouped.get("focal_sticker", []), *role_grouped.get("supporting_sticker", [])]
+        grouped["decoration"] = [
+            *role_grouped.get("decoration", []),
+            *role_grouped.get("frame", []),
+            *role_grouped.get("tape", []),
+        ]
+        return grouped
+
+    def _material_tag_profile(self, material: Material, *, quality: dict | None = None) -> dict:
+        meta = material.meta_info or {}
+        quality = quality or self._material_quality(material)
+        keywords = self._material_search_values(material)
+        subject = str(meta.get("subject") or meta.get("category") or self._material_category(material) or "").strip()
+        density = str(meta.get("density") or quality.get("density") or "medium").strip().lower()
+        complexity = str(meta.get("complexity") or quality.get("complexity") or "medium").strip().lower()
+        background_safe = meta.get("background_safe")
+        if background_safe is None:
+            background_safe = quality.get("background_safe")
+        if background_safe is None:
+            background_safe = not self._contains_any(keywords, self.SUBJECT_BACKGROUND_UNSAFE_TOKENS)
+        background_safe = self._coerce_bool(background_safe, default=True)
+        suggested_role = str(meta.get("suggested_role") or "").strip() or self._infer_layout_role(material, subject=subject, density=density)
+        suggested_zone = str(meta.get("suggested_zone") or "").strip() or self._infer_layout_zone(suggested_role, material)
+        description = str(meta.get("description") or meta.get("display_name") or meta.get("filename") or "").strip()
+        return {
+            "style": self._material_style_tags(material),
+            "emotion": self._material_emotion_tags(material),
+            "scene": self._material_scene_tags(material),
+            "subject": subject,
+            "color_tone": str(meta.get("color_tone") or meta.get("color") or "").strip(),
+            "complexity": complexity,
+            "density": density,
+            "background_safe": background_safe,
+            "suggested_role": suggested_role,
+            "suggested_zone": suggested_zone,
+            "description": description,
+            "keywords": self._dedupe_preserve_order([*keywords, *self._material_semantic_tags(material)]),
+        }
+
+    def _infer_layout_role(self, material: Material, *, subject: str, density: str) -> str:
+        text = " ".join(self._material_search_values(material) + [subject]).lower()
+        usage_type = self._material_usage_type(material)
+        category = self._material_category(material)
+        if material.material_type == "background":
+            return "background"
+        if material.material_type == "decoration":
+            if self._contains_any([text, usage_type, category], {"胶带", "tape", "丝带"}):
+                return "tape"
+            if self._contains_any([text, usage_type, category], {"边框", "frame", "框架", "分隔"}):
+                return "frame"
+            return "decoration"
+        if material.material_type == "sticker":
+            if self._contains_any([usage_type, category, text], {"主体", "主体贴图", "食物", "美食", "人物角色", "动物"}):
+                return "focal_sticker"
+            return "supporting_sticker"
+        return "decoration"
+
+    def _primary_layout_role(self, material: Material, profile: dict) -> str:
+        role = str(profile.get("suggested_role") or "").strip()
+        if role in self.LAYOUT_ROLE_LIMITS:
+            return role
+        return self._infer_layout_role(
+            material,
+            subject=str(profile.get("subject") or ""),
+            density=str(profile.get("density") or ""),
+        )
+
+    def _infer_layout_zone(self, role: str, material: Material) -> str:
+        if role == "background":
+            return "full_bleed"
+        if role == "focal_sticker":
+            return "lower_center"
+        if role == "supporting_sticker":
+            return "corner"
+        if role == "frame":
+            return "frame"
+        if role == "tape":
+            return "top"
+        return "corner"
+
+    def _is_valid_layout_material(self, material: Material) -> bool:
+        meta = material.meta_info or {}
+        url = str(material.file_url or meta.get("raw_file_url") or meta.get("preview_url") or "").strip()
+        if not url:
+            return False
+        width = meta.get("asset_width")
+        height = meta.get("asset_height")
+        try:
+            if width is not None and float(width) <= 0:
+                return False
+            if height is not None and float(height) <= 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+        return True
+
+    def _matched_tags_for_material(
+        self,
+        material: Material,
+        keywords: list[str],
+        *,
+        emotion: str | None,
+        scene: str | None,
+        style: str | None,
+        weather: str | None,
+    ) -> list[str]:
+        values = self._material_search_values(material)
+        probes = self._expand_query_terms(emotion, scene, style, weather, *keywords)
+        matches: list[str] = []
+        for probe in probes:
+            lowered = probe.lower()
+            if lowered and any(lowered in value.lower() or value.lower() in lowered for value in values):
+                matches.append(probe)
+        return self._dedupe_preserve_order(matches)
+
+    @staticmethod
+    def _contains_any(values: list[str] | set[str], tokens: set[str]) -> bool:
+        haystack = " ".join(str(value or "") for value in values).lower()
+        return any(str(token).lower() in haystack for token in tokens)
+
+    @staticmethod
+    def _coerce_bool(value, *, default: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        text = str(value or "").strip().lower()
+        if text in {"true", "1", "yes", "y"}:
+            return True
+        if text in {"false", "0", "no", "n"}:
+            return False
+        return default
 
     def _score_user_preference(self, material: Material) -> tuple[int, list[str]]:
         state = getattr(material, "_user_state", None)

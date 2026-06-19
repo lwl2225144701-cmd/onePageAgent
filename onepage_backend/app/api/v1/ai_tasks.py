@@ -32,7 +32,7 @@ async def create_ai_task(
     # Dispatch Celery task
     try:
         from app.workers.llm_tasks import run_ai_orchestration
-        run_ai_orchestration.delay(task.task_id, user_id, input_json)
+        run_ai_orchestration.delay(task.task_id, user_id, task.input_json)
         logger.info("api_ai_task_dispatched", task_id=task.task_id, queue="llm_queue")
     except Exception:
         logger.exception("api_ai_task_dispatch_failed", task_id=task.task_id)

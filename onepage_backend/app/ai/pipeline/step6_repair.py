@@ -13,8 +13,13 @@ async def run_validate_and_repair(ctx: dict) -> dict:
     raw_json = ctx.get("step5", "{}")
     step4 = ctx.get("step4_review") or ctx.get("step4", {})
     input_json = ctx.get("input_json", {})
+    selection_enforced = isinstance(step4, dict) and "selected_materials" in step4
     asset_context = {
         "groups": step4.get("groups", []) if isinstance(step4, dict) else [],
+        "fallback_mode": step4.get("fallback_mode", "none") if isinstance(step4, dict) else "none",
+        "selected_materials": step4.get("selected_materials", []) if isinstance(step4, dict) else [],
+        "selection_enforced": selection_enforced,
+        "rejected_materials": step4.get("rejected_materials", []) if isinstance(step4, dict) else [],
         "input_image_urls": input_json.get("image_urls", []) if isinstance(input_json, dict) else [],
     }
 
@@ -27,21 +32,41 @@ async def run_validate_and_repair(ctx: dict) -> dict:
         repaired = apply_semantic_guard(repaired, ctx=ctx, asset_context=asset_context)
         repaired = apply_fact_field_normalization(repaired, ctx=ctx)
         repaired = apply_final_page_quality_check(repaired, ctx=ctx, asset_context=asset_context)
-        errors = validator.validate(repaired)
+        errors = validator.validate(repaired, asset_context=asset_context)
+        print(
+            "ONEPAGE_LAYOUT_VALIDATED "
+            f"task_id={ctx.get('task_id')} errors={json.dumps(errors, ensure_ascii=False)} pass={str(not errors).lower()}",
+            flush=True,
+        )
         if not errors:
+            print(
+                f"ONEPAGE_LAYOUT_REPAIRED task_id={ctx.get('task_id')} mode=single_pass "
+                "actions=asset_allowlist,aspect_ratio,bounds,overlap,readability,fact_fields",
+                flush=True,
+            )
             return repaired
         logger.warning("step6_validation_errors", errors=errors)
 
     # If repair didn't fully fix, try re-repairing with errors list
     if repaired is not None:
-        errors = validator.validate(repaired)
+        errors = validator.validate(repaired, asset_context=asset_context)
         repaired2 = repairer.repair(json.dumps(repaired, ensure_ascii=False), errors, asset_context=asset_context)
         if repaired2 is not None:
             repaired2 = apply_semantic_guard(repaired2, ctx=ctx, asset_context=asset_context)
             repaired2 = apply_fact_field_normalization(repaired2, ctx=ctx)
             repaired2 = apply_final_page_quality_check(repaired2, ctx=ctx, asset_context=asset_context)
-            errors2 = validator.validate(repaired2)
+            errors2 = validator.validate(repaired2, asset_context=asset_context)
+            print(
+                "ONEPAGE_LAYOUT_VALIDATED "
+                f"task_id={ctx.get('task_id')} errors={json.dumps(errors2, ensure_ascii=False)} pass={str(not errors2).lower()}",
+                flush=True,
+            )
             if not errors2:
+                print(
+                    f"ONEPAGE_LAYOUT_REPAIRED task_id={ctx.get('task_id')} mode=second_pass "
+                    f"actions={json.dumps(errors, ensure_ascii=False)}",
+                    flush=True,
+                )
                 return repaired2
 
     # Ultimate fallback
@@ -60,8 +85,14 @@ async def run_validate_and_repair(ctx: dict) -> dict:
     if repaired_fallback is not None:
         repaired_fallback = apply_semantic_guard(repaired_fallback, ctx=ctx, asset_context=asset_context)
         repaired_fallback = apply_fact_field_normalization(repaired_fallback, ctx=ctx)
+        print(
+            f"ONEPAGE_LAYOUT_REPAIRED task_id={ctx.get('task_id')} mode=fallback "
+            "actions=fallback_layout,asset_allowlist,fact_fields",
+            flush=True,
+        )
         return apply_final_page_quality_check(repaired_fallback, ctx=ctx, asset_context=asset_context)
     fallback_layout = apply_fact_field_normalization(fallback_layout, ctx=ctx)
+    print(f"ONEPAGE_LAYOUT_REPAIRED task_id={ctx.get('task_id')} mode=fallback_raw", flush=True)
     return apply_final_page_quality_check(fallback_layout, ctx=ctx, asset_context=asset_context)
 
 
@@ -373,6 +404,7 @@ def apply_final_page_quality_check(layout: dict, *, ctx: dict, asset_context: di
     page_area = max(1.0, page_width * page_height)
     candidates_by_url = _candidate_by_url(asset_context)
     rejected_by_url = _rejected_by_url(ctx)
+    selected_ids, selected_urls = _selected_material_allowlist(asset_context)
     journal_context = ctx.get("journal_context", {}) if isinstance(ctx, dict) and isinstance(ctx.get("journal_context"), dict) else {}
     weather_success = bool(journal_context.get("weather_success"))
     weather_status = str(journal_context.get("weather_status") or ("success" if weather_success else "unavailable"))
@@ -390,6 +422,7 @@ def apply_final_page_quality_check(layout: dict, *, ctx: dict, asset_context: di
         element_type = str(element.get("type") or "")
         props = element.get("props", {}) if isinstance(element.get("props"), dict) else {}
         url = str(props.get("url") or "").strip()
+        material_id = str(props.get("material_id") or "").strip()
 
         if element_type in {"image", "sticker", "decoration"}:
             if not url:
@@ -397,6 +430,12 @@ def apply_final_page_quality_check(layout: dict, *, ctx: dict, asset_context: di
                 continue
             if url in rejected_by_url:
                 rejected_used_count += 1
+                continue
+            if selected_urls and url not in selected_urls and url not in asset_context.get("input_image_urls", []):
+                failed_asset_count += 1
+                continue
+            if selected_ids and material_id not in selected_ids and url not in asset_context.get("input_image_urls", []):
+                failed_asset_count += 1
                 continue
 
             candidate = candidates_by_url.get(url)
@@ -524,6 +563,24 @@ def _rejected_by_url(ctx: dict) -> dict[str, dict]:
             if url:
                 result[url] = item
     return result
+
+
+def _selected_material_allowlist(asset_context: dict) -> tuple[set[str], set[str]]:
+    if not asset_context.get("selection_enforced"):
+        return set(), set()
+    selected_ids: set[str] = set()
+    selected_urls: set[str] = set()
+    for item in asset_context.get("selected_materials", []) if isinstance(asset_context, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        material_id = str(item.get("material_id") or "").strip()
+        if material_id:
+            selected_ids.add(material_id)
+        for key in ("file_url", "preview_url", "raw_file_url"):
+            url = str(item.get(key) or "").strip()
+            if url:
+                selected_urls.add(url)
+    return selected_ids, selected_urls
 
 
 def _element_area_ratio(props: dict, page_area: float) -> float:

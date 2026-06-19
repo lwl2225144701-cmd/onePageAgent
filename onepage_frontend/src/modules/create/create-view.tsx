@@ -93,8 +93,7 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
         mood,
         image_urls: imageUrls,
         weather,
-        ...locationContext,
-        page_date: "2024-06-01"
+        ...locationContext
       });
       setTask(task.task_id);
     } catch {

@@ -150,6 +150,152 @@ async def get_journal_page_context(
     return context
 
 
+async def prepare_generation_input(input_json: dict, *, task_id: str) -> dict:
+    """Resolve journal context before dispatching the AI orchestration task."""
+
+    payload = dict(input_json) if isinstance(input_json, dict) else {}
+    existing = payload.get("journal_context")
+    if _has_prefetched_context(existing):
+        _log_line("MCP_CONTEXT_PREFETCH_REUSED", task_id=task_id)
+        return payload
+
+    location = extract_location_hint(payload)
+    timezone = str(payload.get("timezone") or DEFAULT_TIMEZONE)
+    _log_line("MCP_CONTEXT_PREFETCH_START", task_id=task_id, location=location, timezone=timezone)
+    context = await get_journal_page_context(location=location, timezone=timezone, task_id=task_id)
+    payload["journal_context"] = context
+    payload["page_date"] = str(context.get("journal_header", {}).get("date_text") or context.get("date") or "")
+
+    location_context = context.get("location", {}) if isinstance(context.get("location"), dict) else {}
+    resolved_location = _clean_text(
+        location_context.get("district")
+        or location_context.get("city")
+        or location_context.get("input_location")
+        or location
+    )
+    if resolved_location:
+        payload["location"] = resolved_location
+    for key in ("city", "district"):
+        value = _clean_text(location_context.get(key))
+        if value:
+            payload[key] = value
+
+    weather_context = context.get("weather", {}) if isinstance(context.get("weather"), dict) else {}
+    if context.get("weather_success"):
+        payload["weather"] = {
+            **(payload.get("weather") if isinstance(payload.get("weather"), dict) else {}),
+            "weather": weather_context.get("text"),
+            "text": weather_context.get("text"),
+            "icon": weather_context.get("icon"),
+            "icon_key": weather_context.get("icon_key"),
+            "temperature": weather_context.get("temperature_celsius"),
+            "temperature_celsius": weather_context.get("temperature_celsius"),
+            "location": resolved_location,
+            "city": location_context.get("city"),
+            "district": location_context.get("district"),
+        }
+    _log_line(
+        "MCP_CONTEXT_PREFETCH_DONE",
+        task_id=task_id,
+        weather_status=context.get("weather_status"),
+        location_status=context.get("location_status"),
+        source=context.get("source"),
+    )
+    return payload
+
+
+def journal_context_from_input(input_json: dict, *, task_id: str | None = None) -> dict:
+    """Load the task-creation snapshot without making any MCP or network call."""
+
+    payload = input_json if isinstance(input_json, dict) else {}
+    context = payload.get("journal_context")
+    if _has_prefetched_context(context):
+        snapshot = dict(context)
+        _log_line(
+            "JOURNAL_CONTEXT_REUSED",
+            task_id=task_id,
+            source=snapshot.get("source"),
+            weather_status=snapshot.get("weather_status"),
+        )
+        return snapshot
+
+    timezone = str(payload.get("timezone") or DEFAULT_TIMEZONE)
+    datetime_context = build_system_datetime_context(timezone)
+    page_date = _clean_text(payload.get("page_date"))
+    if page_date:
+        datetime_context["date"] = page_date
+    location = extract_location_hint(payload)
+    snapshot = build_fallback_journal_context(
+        location=location,
+        timezone=timezone,
+        datetime_context=datetime_context,
+        location_source="request_payload" if location else "unavailable",
+        error=_tool_error(
+            tool_name="journal_page_context",
+            error_type="PREFETCH_CONTEXT_MISSING",
+            message="Generation input did not contain a prefetched journal context.",
+        ),
+    )
+    _merge_legacy_weather(snapshot, payload.get("weather"))
+    _log_line("JOURNAL_CONTEXT_LOCAL_FALLBACK", task_id=task_id, location=location, weather_status=snapshot.get("weather_status"))
+    return snapshot
+
+
+def extract_location_hint(input_json: dict) -> str | None:
+    if not isinstance(input_json, dict):
+        return None
+    candidates: list[object] = [
+        input_json.get("district"),
+        input_json.get("city"),
+        input_json.get("location"),
+        input_json.get("location_name"),
+    ]
+    for key in ("frontend_location", "geo", "weather"):
+        value = input_json.get(key)
+        if isinstance(value, dict):
+            candidates.extend([value.get("district"), value.get("city"), value.get("location"), value.get("name")])
+    for value in candidates:
+        if isinstance(value, str) and not is_invalid_location(value):
+            return value.strip()
+    return None
+
+
+def _has_prefetched_context(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    datetime_context = value.get("datetime")
+    return isinstance(datetime_context, dict) and bool(datetime_context.get("date"))
+
+
+def _merge_legacy_weather(context: dict, value: object) -> None:
+    if not isinstance(value, dict):
+        return
+    weather_text = _clean_text(value.get("weather") or value.get("text"))
+    if not weather_text or weather_text.lower() in {"unknown", "none", "null"}:
+        return
+    icon = _clean_text(value.get("icon") or value.get("weather_icon"))
+    icon_key = _clean_text(value.get("icon_key") or value.get("weather_icon_key"))
+    temperature = value.get("temperature_celsius", value.get("temperature"))
+    context["weather_success"] = True
+    context["weather_status"] = "success"
+    context["weather_source"] = "request_payload"
+    context["weather_text"] = weather_text
+    context["weather_icon"] = icon
+    context["temperature"] = temperature
+    context["weather"] = {
+        **context.get("weather", {}),
+        "text": weather_text,
+        "icon": icon,
+        "icon_key": icon_key or "unknown",
+        "temperature_celsius": temperature,
+    }
+    context["journal_header"] = {
+        **context.get("journal_header", {}),
+        "weather_text": weather_text,
+        "weather_icon": icon,
+    }
+
+
 def _log_journal_context_ready(context: dict, *, task_id: str | None = None) -> None:
     datetime_context = context.get("datetime", {}) if isinstance(context.get("datetime"), dict) else {}
     location_context = context.get("location", {}) if isinstance(context.get("location"), dict) else {}

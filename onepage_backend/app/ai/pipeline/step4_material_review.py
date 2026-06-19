@@ -227,7 +227,7 @@ async def run_material_review(ctx: dict) -> dict:
     rejected: list[dict] = []
     prefiltered: list[dict] = []
 
-    semantic = _semantic_context(step1)
+    semantic = _force_food_semantic(_semantic_context(step1), user_text)
     for group in groups:
         if not isinstance(group, dict):
             continue
@@ -348,6 +348,30 @@ def _semantic_context(step1: dict) -> dict:
         "avoid_tags": step1.get("avoid_tags") or text_analysis.get("avoid_tags") or [],
         "semantic_constraints": constraints if isinstance(constraints, dict) else {},
     }
+
+
+def _force_food_semantic(semantic: dict, user_text: str) -> dict:
+    text = str(user_text or "").lower()
+    if not _contains_any(text, FOOD_STRONG_TOKENS):
+        return semantic
+    result = dict(semantic)
+    result["scene"] = "daily_life"
+    result["sub_scene"] = "food_review"
+    result["intent"] = "food_record"
+    positives = list(result.get("positive_tags") or [])
+    avoids = list(result.get("avoid_tags") or [])
+    for tag in ["food", "daily", "warm", "happy", "review"]:
+        if tag not in positives:
+            positives.append(tag)
+    for tag in ["romance", "valentine", "wedding", "party", "festival", "congratulations", "bouquet", "gift", "unrelated_people", "religion", "crest", "dance", "ballet"]:
+        if tag not in avoids:
+            avoids.append(tag)
+    result["positive_tags"] = positives
+    result["avoid_tags"] = avoids
+    constraints = dict(result.get("semantic_constraints") or {})
+    constraints.update({"avoid_unrelated_people": True, "avoid_party": True, "avoid_text_heavy_sticker": True})
+    result["semantic_constraints"] = constraints
+    return result
 
 
 def _review_item_by_rules(item: dict, *, material_type: str, semantic: dict, style_result: dict) -> dict:
