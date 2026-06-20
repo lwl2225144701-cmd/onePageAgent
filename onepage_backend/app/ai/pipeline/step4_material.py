@@ -56,8 +56,8 @@ async def run_material_matching(ctx: dict) -> dict:
         f"weather={weather or 'unknown'} "
         f"weather_icon={weather_context['weather_icon'] or ''} "
         f"location={weather_context['location'] or ''} "
-        "source=mcp "
-        f"tool_success={str(weather_context['tool_success']).lower()}",
+        f"source={journal_context.get('source') or 'request_environment'} "
+        f"context_success={str(weather_context['tool_success']).lower()}",
         flush=True,
     )
 

@@ -3,7 +3,6 @@ import pytest
 from sqlalchemy import select
 
 from app.models.ai_task import AITask
-from app.ai import mcp_client
 from app.services.ai_task_service import AITaskService
 
 
@@ -43,26 +42,22 @@ async def test_task_status_transitions(db_session):
 
 
 @pytest.mark.asyncio
-async def test_service_persists_prefetched_journal_context(db_session, monkeypatch):
-    async def fake_prepare(input_json, *, task_id):
-        return {
-            **input_json,
-            "page_date": "2026-06-19",
-            "journal_context": {
-                "source": "journal_mcp",
-                "datetime": {"date": "2026-06-19", "timezone": "Asia/Shanghai"},
-                "weather": {"text": "晴", "icon": "☀️"},
-                "weather_success": True,
-                "weather_status": "success",
-            },
-        }
-
-    monkeypatch.setattr(mcp_client, "prepare_generation_input", fake_prepare)
-
+async def test_service_persists_request_environment_without_prefetch(db_session):
+    environment = {
+        "date": "2026-06-20",
+        "time": "14:35",
+        "weekday": "周六",
+        "city": "深圳市",
+        "district": "福田区",
+        "weather": "多云",
+        "temperature": 29,
+        "icon_key": "cloudy",
+        "source": "amap",
+    }
     task = await AITaskService(db_session).create_task(
         "test_user",
-        {"text": "今天很好", "mood": "开心"},
+        {"text": "今天很好", "mood": "开心", "environment_context": environment},
     )
 
-    assert task.input_json["journal_context"]["weather"]["text"] == "晴"
-    assert task.input_json["page_date"] == "2026-06-19"
+    assert task.input_json["environment_context"] == environment
+    assert "journal_context" not in task.input_json

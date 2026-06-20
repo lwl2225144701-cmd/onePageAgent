@@ -20,16 +20,15 @@ class AITaskService:
     async def create_task(self, user_id: str, input_json: dict) -> AITask:
         task_id = uuid.uuid4().hex[:12]
         logger.debug("service_ai_task_create_start", task_id=task_id, user_id=user_id)
-        try:
-            from app.ai.mcp_client import prepare_generation_input
-
-            prepared_input = await prepare_generation_input(input_json, task_id=task_id)
-        except Exception as exc:
-            from app.ai.mcp_client import journal_context_from_input
-
-            logger.warning("service_ai_task_context_prefetch_failed", task_id=task_id, error=str(exc))
-            prepared_input = dict(input_json) if isinstance(input_json, dict) else {}
-            prepared_input["journal_context"] = journal_context_from_input(prepared_input, task_id=task_id)
+        prepared_input = dict(input_json) if isinstance(input_json, dict) else {}
+        environment = prepared_input.get("environment_context")
+        environment = environment if isinstance(environment, dict) else {}
+        logger.info(
+            "AI_ENVIRONMENT_CONTEXT_REUSED",
+            task_id=task_id,
+            city=environment.get("city"),
+            weather=environment.get("weather") or "unknown",
+        )
         task = AITask(
             task_id=task_id,
             user_id=user_id,

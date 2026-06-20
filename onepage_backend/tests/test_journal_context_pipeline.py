@@ -3,7 +3,6 @@ from datetime import datetime as real_datetime
 import pytest
 
 from app.ai import mcp_client
-from app.ai.orchestrator import AIOrchestrator
 from app.ai.pipeline import step4_material
 from app.ai.pipeline.step1_content import build_semantic_result
 from app.ai.pipeline.step6_repair import apply_fact_field_normalization
@@ -56,37 +55,53 @@ async def test_generation_input_prefetches_mcp_context_before_dispatch(monkeypat
     assert result["page_date"] == "2026-06-13"
 
 
-@pytest.mark.asyncio
-async def test_orchestrator_step0_only_reuses_prefetched_context(monkeypatch):
+def test_orchestrator_reuses_request_environment_without_mcp(monkeypatch):
     async def forbidden_mcp_call(*args, **kwargs):
         raise AssertionError("generation pipeline must not call MCP")
 
     monkeypatch.setattr(mcp_client, "call_mcp_tool", forbidden_mcp_call)
-    expected = _journal_context(weather="晴", icon="☀️", icon_key="sunny")
-
-    result = await AIOrchestrator()._run_step0_journal_context(
-        {"task_id": "t-reuse", "input_json": {"journal_context": expected}}
+    result = mcp_client.journal_context_from_input(
+        {
+            "environment_context": {
+                "date": "2026-06-20",
+                "time": "14:35",
+                "weekday": "周六",
+                "timezone": "Asia/Shanghai",
+                "province": "广东省",
+                "city": "深圳市",
+                "district": "福田区",
+                "location": "深圳市 福田区",
+                "adcode": "440304",
+                "weather": "多云",
+                "temperature": 29,
+                "humidity": 70,
+                "icon_key": "cloudy",
+                "report_time": "2026-06-20 14:30:00",
+                "source": "amap",
+            }
+        },
+        task_id="t-reuse",
     )
 
-    assert result["journal_header"]["weather_text"] == "晴"
-    assert result["weather"] == expected["weather"]
+    assert result["source"] == "request_environment"
+    assert result["journal_header"]["weather_text"] == "多云"
+    assert result["journal_header"]["date_text"] == "2026.06.20 周六"
+    assert result["location"]["district"] == "福田区"
+    assert result["weather"]["temperature_celsius"] == 29
 
 
-@pytest.mark.asyncio
-async def test_orchestrator_step0_missing_snapshot_uses_local_fallback(monkeypatch):
+def test_missing_environment_uses_local_fallback_without_mcp(monkeypatch):
     async def forbidden_mcp_call(*args, **kwargs):
         raise AssertionError("legacy fallback must not call MCP")
 
     monkeypatch.setattr(mcp_client, "call_mcp_tool", forbidden_mcp_call)
 
-    result = await AIOrchestrator()._run_step0_journal_context(
+    result = mcp_client.journal_context_from_input(
         {
-            "task_id": "t-local-fallback",
-            "input_json": {
-                "location": "深圳市",
-                "weather": {"weather": "多云", "icon": "⛅", "temperature": 27},
-            },
-        }
+            "location": "深圳市",
+            "weather": {"weather": "多云", "icon": "⛅", "temperature": 27},
+        },
+        task_id="t-local-fallback",
     )
 
     assert result["weather_status"] == "success"

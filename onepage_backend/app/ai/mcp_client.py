@@ -205,9 +205,20 @@ async def prepare_generation_input(input_json: dict, *, task_id: str) -> dict:
 
 
 def journal_context_from_input(input_json: dict, *, task_id: str | None = None) -> dict:
-    """Load the task-creation snapshot without making any MCP or network call."""
+    """Load request-provided environment facts without making an MCP or network call."""
 
     payload = input_json if isinstance(input_json, dict) else {}
+    environment = payload.get("environment_context")
+    if isinstance(environment, dict) and _clean_text(environment.get("date")):
+        snapshot = _journal_context_from_environment(environment)
+        _log_line(
+            "AI_ENVIRONMENT_CONTEXT_REUSED",
+            task_id=task_id,
+            city=environment.get("city"),
+            weather=environment.get("weather") or "unknown",
+        )
+        return snapshot
+
     context = payload.get("journal_context")
     if _has_prefetched_context(context):
         snapshot = dict(context)
@@ -239,6 +250,87 @@ def journal_context_from_input(input_json: dict, *, task_id: str | None = None) 
     _merge_legacy_weather(snapshot, payload.get("weather"))
     _log_line("JOURNAL_CONTEXT_LOCAL_FALLBACK", task_id=task_id, location=location, weather_status=snapshot.get("weather_status"))
     return snapshot
+
+
+def _journal_context_from_environment(environment: dict) -> dict:
+    date = _clean_text(environment.get("date"))
+    time_text = _clean_text(environment.get("time"))
+    weekday = _clean_text(environment.get("weekday"))
+    timezone = _clean_text(environment.get("timezone")) or DEFAULT_TIMEZONE
+    province = _clean_text(environment.get("province"))
+    city = _clean_text(environment.get("city"))
+    district = _clean_text(environment.get("district"))
+    location_text = _clean_text(environment.get("location")) or " ".join(part for part in (city, district) if part)
+    weather_text = _clean_text(environment.get("weather"))
+    weather_success = bool(weather_text and weather_text.lower() not in {"unknown", "none", "null"})
+    icon_key = _clean_text(environment.get("icon_key")) or "unknown"
+    weather_icon = _weather_icon(icon_key) if weather_success else ""
+    date_text = date.replace("-", ".")
+    if weekday:
+        date_text = f"{date_text} {weekday}"
+
+    return {
+        "source": "request_environment",
+        "ok": True,
+        "tool_success": weather_success,
+        "weather_success": weather_success,
+        "weather_status": "success" if weather_success else "unavailable",
+        "location_status": "success" if city or district else "unavailable",
+        "type": "journal_page_context",
+        "datetime": {
+            "date": date,
+            "time": time_text,
+            "weekday": weekday,
+            "timezone": timezone,
+        },
+        "location": {
+            "province": province,
+            "city": city,
+            "district": district,
+            "adcode": _clean_text(environment.get("adcode")),
+            "input_location": location_text,
+            "location_source": "browser_geolocation" if city or district else "unavailable",
+        },
+        "weather": {
+            "text": weather_text if weather_success else None,
+            "icon": weather_icon or None,
+            "icon_key": icon_key,
+            "temperature_celsius": environment.get("temperature"),
+            "humidity": environment.get("humidity"),
+            "report_time": _clean_text(environment.get("report_time")),
+        },
+        "journal_header": {
+            "date_text": date_text,
+            "weather_text": weather_text if weather_success else None,
+            "weather_icon": weather_icon or None,
+        },
+        "semantic_tags": [weather_text] if weather_success else [],
+        "mood_tags": [],
+        "recommended_material_tags": [],
+        "date": date,
+        "time": time_text,
+        "weekday": weekday,
+        "timezone": timezone,
+        "weather_source": _clean_text(environment.get("source")) or ("request_payload" if weather_success else None),
+        "weather_text": weather_text if weather_success else None,
+        "weather_icon": weather_icon or None,
+        "temperature": environment.get("temperature") if weather_success else None,
+    }
+
+
+def _weather_icon(icon_key: str) -> str:
+    return {
+        "sunny": "☀️",
+        "cloudy": "⛅",
+        "overcast": "☁️",
+        "rain": "🌧️",
+        "thunderstorm": "⛈️",
+        "snow": "❄️",
+        "sleet": "🌨️",
+        "fog": "🌫️",
+        "dust": "🌪️",
+        "wind": "💨",
+    }.get(icon_key, "")
 
 
 def extract_location_hint(input_json: dict) -> str | None:

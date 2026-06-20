@@ -1,5 +1,5 @@
 import { apiClient, createEventSource, unwrap } from "@/api/client";
-import type { TaskDetailResponse, TaskResponse } from "@/types/backend";
+import type { EnvironmentContext, TaskDetailResponse, TaskResponse } from "@/types/backend";
 
 export type CreateTaskInput = {
   text: string;
@@ -12,6 +12,7 @@ export type CreateTaskInput = {
   district?: string;
   geo?: Record<string, unknown>;
   page_date?: string;
+  environment_context: EnvironmentContext;
 };
 
 export function createAiTask(input: CreateTaskInput) {

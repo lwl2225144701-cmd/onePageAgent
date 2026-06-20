@@ -21,20 +21,12 @@ class AIOrchestrator:
             "user_id": user_id,
             "input_json": input_json,
         }
+        from app.ai.mcp_client import journal_context_from_input
+
+        ctx["journal_context"] = journal_context_from_input(input_json, task_id=task_id)
 
         try:
             await self._publish_progress(task_id, 0, "开始分析", "processing", 0)
-
-            # Step 0: Journal environment context
-            await self._publish_progress(task_id, 0, "手帐环境上下文", "processing", 3)
-            logger.info("orchestrator_step_start", task_id=task_id, step=0, step_name="手帐环境上下文")
-            self._print_step(task_id, 0, "手帐环境上下文", "START")
-            step_started = time.perf_counter()
-            ctx["journal_context"] = await self._run_step0_journal_context(ctx)
-            timings["context_ms"] = _elapsed_ms(step_started)
-            await self._publish_progress(task_id, 0, "手帐环境上下文", "completed", 4)
-            logger.info("orchestrator_step_done", task_id=task_id, step=0, step_name="手帐环境上下文")
-            self._print_step(task_id, 0, "手帐环境上下文", "DONE")
 
             # Step 1: Content Understanding
             await self._publish_progress(task_id, 1, "内容理解", "processing", 5)
@@ -121,7 +113,6 @@ class AIOrchestrator:
             print(
                 "TASK_DONE "
                 f"task_id={task_id} total_ms={_elapsed_ms(total_started)} "
-                f"context_ms={timings.get('context_ms', 0)} "
                 f"semantic_ms={timings.get('semantic_ms', 0)} "
                 f"emotion_ms={timings.get('emotion_ms', 0)} "
                 f"style_ms={timings.get('style_ms', 0)} "
@@ -163,20 +154,6 @@ class AIOrchestrator:
     async def _run_step1(self, ctx):
         from app.ai.pipeline.step1_content import run_content_understanding
         return await run_content_understanding(ctx)
-
-    async def _run_step0_journal_context(self, ctx):
-        from app.ai.mcp_client import journal_context_from_input
-
-        input_json = ctx.get("input_json", {}) if isinstance(ctx.get("input_json"), dict) else {}
-        print(
-            "MCP_CONTEXT_DECISION "
-            f"task_id={ctx.get('task_id')} "
-            "required=False "
-            "reason=context_prefetched_at_task_creation "
-            "tool_call_mode=reuse_input_snapshot",
-            flush=True,
-        )
-        return journal_context_from_input(input_json, task_id=ctx.get("task_id"))
 
     async def _run_step2(self, ctx):
         from app.ai.pipeline.step2_sentiment import run_sentiment_analysis

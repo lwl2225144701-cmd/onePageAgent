@@ -128,11 +128,53 @@ export type MaterialUploadSessionCreateResponse = {
   expires_at: string;
 };
 
+export type WeatherIconKey =
+  | "sunny"
+  | "cloudy"
+  | "overcast"
+  | "rain"
+  | "thunderstorm"
+  | "snow"
+  | "sleet"
+  | "fog"
+  | "dust"
+  | "wind"
+  | "unknown";
+
 export type WeatherResponse = {
+  province: string;
+  city: string;
+  district: string;
+  location: string;
+  adcode: string;
   weather: string;
-  temperature?: number;
-  city?: string;
-  [key: string]: unknown;
+  temperature: number | null;
+  humidity: number | null;
+  wind_direction: string;
+  wind_power: string;
+  report_time: string;
+  icon_key: WeatherIconKey;
+  source: "amap" | "unavailable";
+  error_type?: string | null;
+  message?: string | null;
+};
+
+export type EnvironmentContext = {
+  date: string;
+  time: string;
+  weekday: string;
+  timezone: string;
+  province: string;
+  city: string;
+  district: string;
+  location: string;
+  adcode: string;
+  weather: string;
+  temperature: number | null;
+  humidity: number | null;
+  icon_key: WeatherIconKey;
+  report_time: string;
+  source: "amap" | "unavailable";
 };
 
 export type UserPreferenceResponse = {

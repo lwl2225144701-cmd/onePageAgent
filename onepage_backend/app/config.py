@@ -76,8 +76,9 @@ class Settings(BaseSettings):
     VISION_REVIEW_CIRCUIT_BREAKER_COOLDOWN_SECONDS: int
 
     # ── Weather ──
-    WEATHER_API_URL: str
-    WEATHER_API_KEY: str
+    AMAP_WEB_SERVICE_KEY: str
+    AMAP_REVERSE_GEOCODE_URL: str
+    AMAP_WEATHER_URL: str
     WEATHER_CACHE_TTL: int
     AMAP_WEATHER_MCP_URL: str
     MCP_TOOL_TIMEOUT_SECONDS: int

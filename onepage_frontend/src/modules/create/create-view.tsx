@@ -1,14 +1,15 @@
 "use client";
 
 import Image from "next/image";
-import { Camera, Flower2, MapPin, Mic, Sun, Type } from "lucide-react";
+import { Camera, CircleHelp, Cloud, CloudFog, CloudLightning, CloudRain, CloudSun, Flower2, MapPin, Mic, Snowflake, Sun, Type, Wind } from "lucide-react";
 import { createAiTask } from "@/api/ai-tasks.api";
 import { uploadAudio, uploadImage } from "@/api/uploads.api";
 import { getWeather } from "@/api/weather.api";
 import { useAITaskStore } from "@/stores/ai-task-store";
 import { useCreateStore } from "@/stores/create-store";
 import { Button } from "@/shared/ui/button";
-import { useEffect } from "react";
+import type { EnvironmentContext, WeatherIconKey, WeatherResponse } from "@/types/backend";
+import { useEffect, useMemo, useState } from "react";
 
 const moods = [
   { label: "开心", emoji: "😊" },
@@ -31,55 +32,112 @@ const journalPaperStyle = {
   backgroundSize: "auto, auto, 18px 18px",
 } satisfies React.CSSProperties;
 
-const defaultJournalLocation = {
-  location: "上海市 静安区",
-  city: "上海市",
-  district: "静安区",
-};
-
 function readWeatherText(weather: Record<string, unknown>) {
-  return String(weather.weather ?? weather.text ?? "晴").trim() || "晴";
+  const value = String(weather.weather ?? weather.text ?? "").trim();
+  return value && value !== "unknown" ? value : "";
 }
 
 function readTemperature(weather: Record<string, unknown>) {
-  const value = weather.temperature ?? weather.temperature_celsius ?? 26;
-  return typeof value === "number" ? Math.round(value) : String(value || 26);
+  const value = weather.temperature ?? weather.temperature_celsius;
+  return typeof value === "number" ? Math.round(value) : null;
 }
 
-function readLocationContext(weather: Record<string, unknown>) {
-  const location = String(weather.location ?? weather.name ?? "").trim();
-  const city = String(weather.city ?? "").trim();
-  const district = String(weather.district ?? "").trim();
-  const normalizedLocation = location && !["未知", "unknown", "none", "null"].includes(location.toLowerCase()) ? location : defaultJournalLocation.location;
+const weatherIcons: Record<WeatherIconKey, React.ComponentType<{ size?: number; className?: string }>> = {
+  sunny: Sun,
+  cloudy: CloudSun,
+  overcast: Cloud,
+  rain: CloudRain,
+  thunderstorm: CloudLightning,
+  snow: Snowflake,
+  sleet: CloudRain,
+  fog: CloudFog,
+  dust: Wind,
+  wind: Wind,
+  unknown: CircleHelp,
+};
 
+type LookupStatus = "loading" | "ready" | "unavailable";
+
+function localDateContext(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const dateText = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   return {
-    location: normalizedLocation,
-    city: city || defaultJournalLocation.city,
-    district: district || defaultJournalLocation.district,
+    date: dateText,
+    displayDate: dateText.replaceAll("-", "."),
+    time: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+    weekday: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][date.getDay()],
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
+  };
+}
+
+function buildEnvironmentContext(
+  date: ReturnType<typeof localDateContext>,
+  weather: Record<string, unknown>,
+  weatherReady: boolean,
+): EnvironmentContext {
+  const source = weatherReady && weather.source === "amap" ? "amap" : "unavailable";
+  return {
+    date: date.date,
+    time: date.time,
+    weekday: date.weekday,
+    timezone: date.timezone,
+    province: String(weather.province ?? ""),
+    city: String(weather.city ?? ""),
+    district: String(weather.district ?? ""),
+    location: String(weather.location ?? ""),
+    adcode: String(weather.adcode ?? ""),
+    weather: weatherReady ? readWeatherText(weather) || "unknown" : "unknown",
+    temperature: weatherReady ? readTemperature(weather) : null,
+    humidity: weatherReady && typeof weather.humidity === "number" ? weather.humidity : null,
+    icon_key: weatherReady ? (String(weather.icon_key ?? "unknown") as WeatherIconKey) : "unknown",
+    report_time: weatherReady ? String(weather.report_time ?? "") : "",
+    source,
   };
 }
 
 export function CreateView({ onGenerated }: { onGenerated: () => void }) {
   const { text, mood, imageFiles, weather, setText, setMood, setImageFiles, setImageUrls, setWeather } = useCreateStore();
   const setTask = useAITaskStore((state) => state.setTask);
+  const dateContext = useMemo(() => localDateContext(new Date()), []);
+  const [locationStatus, setLocationStatus] = useState<LookupStatus>("loading");
+  const [weatherStatus, setWeatherStatus] = useState<LookupStatus>("loading");
   const weatherText = readWeatherText(weather);
   const temperature = readTemperature(weather);
-  const locationContext = readLocationContext(weather);
+  const locationText = String(weather.location ?? "").trim();
+  const iconKey = String(weather.icon_key ?? "unknown") as WeatherIconKey;
+  const WeatherIcon = weatherIcons[iconKey] ?? weatherIcons.unknown;
 
   useEffect(() => {
-    if (!("geolocation" in navigator)) return;
+    let active = true;
+    if (!("geolocation" in navigator)) {
+      setLocationStatus("unavailable");
+      setWeatherStatus("unavailable");
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         try {
           const currentWeather = await getWeather(position.coords.latitude, position.coords.longitude);
-          setWeather({ ...defaultJournalLocation, ...currentWeather });
+          if (!active) return;
+          setWeather(currentWeather);
+          setLocationStatus(currentWeather.location ? "ready" : "unavailable");
+          setWeatherStatus(currentWeather.source === "amap" && currentWeather.weather !== "unknown" ? "ready" : "unavailable");
         } catch {
-          // keep local fallback weather
+          if (!active) return;
+          setLocationStatus("unavailable");
+          setWeatherStatus("unavailable");
         }
       },
-      () => undefined,
-      { timeout: 2000 }
+      () => {
+        if (!active) return;
+        setLocationStatus("unavailable");
+        setWeatherStatus("unavailable");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 },
     );
+    return () => {
+      active = false;
+    };
   }, [setWeather]);
 
   async function handleGenerate() {
@@ -92,8 +150,8 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
         text,
         mood,
         image_urls: imageUrls,
-        weather,
-        ...locationContext
+        page_date: dateContext.date,
+        environment_context: buildEnvironmentContext(dateContext, weather, weatherStatus === "ready"),
       });
       setTask(task.task_id);
     } catch {
@@ -106,16 +164,22 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
       <div className="flex w-full max-w-[390px] flex-col overflow-hidden rounded-[20px] border border-line bg-[#fffaf4]/95 p-5 shadow-journal [scrollbar-width:none] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden max-md:h-full max-md:min-h-0 max-md:max-w-none max-md:overflow-y-auto max-md:overscroll-contain">
         <header className="space-y-2">
           <div className="flex items-center justify-between">
-            <div className="text-left text-[22px] font-semibold leading-none">2024.06.01 周六</div>
+            <div className="text-left text-[22px] font-semibold leading-none">{dateContext.displayDate} {dateContext.weekday}</div>
             <div className="flex items-center gap-2 text-sm text-muted">
-              <span>{temperature}°C</span>
-              <span>{weatherText}</span>
-              <Sun size={16} className="text-[#e19a35]" />
+              {weatherStatus === "ready" ? (
+                <>
+                  {temperature !== null ? <span>{temperature}°C</span> : null}
+                  <span>{weatherText}</span>
+                  <WeatherIcon size={16} className="text-[#b7834f]" />
+                </>
+              ) : (
+                <span>{weatherStatus === "loading" ? "天气获取中" : "天气暂不可用"}</span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted">
             <MapPin size={14} />
-            <span>{locationContext.location}</span>
+            <span>{locationStatus === "ready" ? locationText : locationStatus === "loading" ? "正在获取定位" : "未获取定位"}</span>
           </div>
         </header>
         <div className="mb-5 mt-6 grid grid-cols-4 gap-3.5 max-md:mb-5 max-md:mt-7">
