@@ -8,6 +8,8 @@ logger = structlog.get_logger(__name__)
 
 async def run_material_matching(ctx: dict) -> dict:
     """Step 4: Match materials based on style, emotion, scene, and weather."""
+    if settings.LAYOUT_ENGINE_VERSION == "v2":
+        return await _run_material_matching_v2(ctx)
     step1 = ctx.get("step1", {})
     step2 = ctx.get("step2", {})
     step3 = ctx.get("step3", {})
@@ -124,6 +126,51 @@ async def run_material_matching(ctx: dict) -> dict:
             await dispose_db_engine()
 
     return {"summary": {"emotion": emotion, "scene": scene, "sub_scene": sub_scene, "style": style, "weather": weather, "keywords": keywords}, "groups": []}
+
+
+async def _run_material_matching_v2(ctx: dict) -> dict:
+    from app.ai.layout_v2.catalog import public_template_summary
+    from app.ai.layout_v2.material_retriever import retrieve_material_role_groups
+    from app.ai.layout_v2.schemas import VisualBrief
+    from app.ai.layout_v2.template_filter import filter_templates, required_roles_for_templates
+    from app.ai.layout_v2.visual_brief import build_visual_brief_from_context
+
+    brief = VisualBrief.model_validate(ctx.get("visual_brief") or build_visual_brief_from_context(ctx))
+    templates = filter_templates(brief)
+    required_roles = required_roles_for_templates(templates)
+    retrieved = await retrieve_material_role_groups(
+        brief=brief,
+        required_roles=required_roles,
+        user_id=ctx.get("user_id"),
+    )
+    role_groups = retrieved["role_groups"]
+    template_summaries = [public_template_summary(template) for template in templates]
+    print(
+        "ONEPAGE_TEMPLATE_CANDIDATES "
+        f"task_id={ctx.get('task_id')} items={json.dumps([item['id'] for item in template_summaries], ensure_ascii=False)}",
+        flush=True,
+    )
+    print(
+        "ONEPAGE_MATERIAL_ROLE_CANDIDATES "
+        f"task_id={ctx.get('task_id')} counts={json.dumps({role: len(items) for role, items in role_groups.items()}, ensure_ascii=False)}",
+        flush=True,
+    )
+    if retrieved["rejected"]:
+        print(
+            "ONEPAGE_MATERIAL_REJECTED "
+            f"task_id={ctx.get('task_id')} items={json.dumps(retrieved['rejected'][:40], ensure_ascii=False)}",
+            flush=True,
+        )
+    return {
+        "summary": {
+            "layout_engine": "v2",
+            "visual_brief": brief.model_dump(mode="json"),
+            "template_candidates": template_summaries,
+            "required_roles": sorted(required_roles),
+        },
+        "role_groups": role_groups,
+        "rejected_materials": retrieved["rejected"],
+    }
 
 
 async def retrieve_candidates(

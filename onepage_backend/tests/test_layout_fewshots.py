@@ -9,6 +9,7 @@ from app.ai.pipeline import step5_layout
 from app.ai.pipeline.step5_layout import _parse_layout_decision, _select_materials_for_layout
 from app.ai.pipeline.step6_repair import run_validate_and_repair
 from app.ai.prompts.layout_fewshots import build_layout_policy, select_layout_fewshots, selected_material_bundle
+from app.config import settings
 
 
 def _material(material_id: str, role: str, material_type: str, **overrides):
@@ -199,6 +200,7 @@ def test_layout_decision_accepts_only_candidate_template():
 
 @pytest.mark.asyncio
 async def test_step5_model_only_decides_template_and_copy(monkeypatch):
+    monkeypatch.setattr(settings, "LAYOUT_ENGINE_VERSION", "v1")
     items = [
         _material("bg", "background", "background", asset_width=1200, asset_height=900),
         _material("cat", "focal_sticker", "sticker"),

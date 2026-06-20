@@ -61,6 +61,18 @@ class AIOrchestrator:
             logger.info("orchestrator_step_done", task_id=task_id, step=3, step_name="风格推断")
             self._print_step(task_id, 3, "风格推断", "DONE")
 
+            from app.config import settings
+
+            if settings.LAYOUT_ENGINE_VERSION == "v2":
+                from app.ai.layout_v2.visual_brief import build_visual_brief_from_context
+
+                ctx["visual_brief"] = build_visual_brief_from_context(ctx).model_dump(mode="json")
+                print(
+                    "ONEPAGE_VISUAL_BRIEF "
+                    f"task_id={task_id} brief={json.dumps(ctx['visual_brief'], ensure_ascii=False)}",
+                    flush=True,
+                )
+
             # Step 4: Material Matching
             await self._publish_progress(task_id, 4, "素材匹配", "processing", 52)
             logger.info("orchestrator_step_start", task_id=task_id, step=4, step_name="素材匹配")
@@ -126,7 +138,14 @@ class AIOrchestrator:
 
         except Exception as e:
             logger.exception("orchestrator_run_error", task_id=task_id, error=str(e))
-            fallback = get_fallback_layout("neutral")
+            from app.config import settings
+
+            if settings.LAYOUT_ENGINE_VERSION == "v2":
+                from app.ai.layout_v2.compiler import compile_emergency_minimal_v2
+
+                fallback = compile_emergency_minimal_v2(task_id=task_id, input_json=input_json)
+            else:
+                fallback = get_fallback_layout("neutral")
             await self._save_error(task_id, str(e))
             await self._publish_progress(task_id, 0, "出错", "failed", 0)
             return fallback
@@ -237,6 +256,17 @@ class AIOrchestrator:
             return []
 
         candidates_by_url: dict[str, dict] = {}
+        role_groups = step4.get("role_groups")
+        if isinstance(role_groups, dict):
+            for role, items in role_groups.items():
+                for item in items if isinstance(items, list) else []:
+                    if not isinstance(item, dict):
+                        continue
+                    candidate = {**item, "safe_role": role}
+                    for key in ("file_url", "raw_file_url", "preview_url"):
+                        url = str(candidate.get(key) or "").strip()
+                        if url:
+                            candidates_by_url[url] = candidate
         for group in step4.get("groups", []):
             if not isinstance(group, dict):
                 continue
@@ -257,6 +287,7 @@ class AIOrchestrator:
                 {
                     "material_id": item.get("material_id"),
                     "type": item.get("material_type"),
+                    "role": item.get("role") or item.get("safe_role") or item.get("suggested_role"),
                     "name": item.get("display_name") or item.get("origin_path"),
                     "category": item.get("category"),
                 }

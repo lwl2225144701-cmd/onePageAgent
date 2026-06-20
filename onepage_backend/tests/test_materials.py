@@ -6,6 +6,7 @@ from app.ai.pipeline import step4_material
 from app.ai.pipeline.step4_material import annotate_layout_suggestions, run_material_matching, summarize_recall_candidates
 from app.models.material import Material
 from app.services.material_service import MaterialService
+from app.config import settings
 
 
 @pytest.mark.asyncio
@@ -98,7 +99,7 @@ async def test_retrieve_layout_candidates_uses_meta_info_and_visibility(db_sessi
     assert len(first_group["items"]) == 1
     assert f"/api/materials/{own_material.id}/asset?anonymous_user_id=user-a" in first_group["items"][0]["file_url"]
     assert first_group["items"][0]["raw_file_url"] == "/own.png"
-    assert "emotion:开心" in first_group["items"][0]["match_reasons"]
+    assert not any(reason.startswith("emotion:") for reason in first_group["items"][0]["match_reasons"])
     assert "scene:旅行" in first_group["items"][0]["match_reasons"]
 
 
@@ -156,7 +157,7 @@ async def test_retrieve_layout_candidates_prioritizes_favorite_and_recent(db_ses
 
 
 @pytest.mark.asyncio
-async def test_retrieve_layout_candidates_expands_emotion_to_content_categories(db_session):
+async def test_retrieve_layout_candidates_does_not_expand_emotion_to_content_categories(db_session):
     calm_background = Material(
         id=uuid.uuid4(),
         material_type="background",
@@ -188,10 +189,7 @@ async def test_retrieve_layout_candidates_expands_emotion_to_content_categories(
         keywords=[],
     )
 
-    grouped = {group["material_type"]: group["items"] for group in result["groups"]}
-    assert grouped["background"][0]["category"] == "纸张纹理"
-    assert grouped["sticker"][0]["category"] == "花草"
-    assert any(reason.startswith("emotion:") for reason in grouped["background"][0]["match_reasons"])
+    assert result["groups"] == []
 
 
 @pytest.mark.asyncio
@@ -343,6 +341,7 @@ def test_annotate_layout_suggestions_sets_background_preference_and_roles():
 
 @pytest.mark.asyncio
 async def test_run_material_matching_retries_after_candidate_failure(monkeypatch):
+    monkeypatch.setattr(settings, "LAYOUT_ENGINE_VERSION", "v1")
     calls = {"retrieve": 0, "dispose": 0}
 
     async def fake_retrieve_candidates(**_kwargs):

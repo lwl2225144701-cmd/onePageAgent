@@ -12,6 +12,15 @@ type CanvasTextNodeProps = {
   width: number;
   fontSize: number;
   lineHeight?: number;
+  height?: number;
+  maxLines?: number;
+  shadow?: {
+    color?: string;
+    blur?: number;
+    opacity?: number;
+    offset_x?: number;
+    offset_y?: number;
+  };
   content: string;
   color: string;
   align: string;
@@ -32,6 +41,9 @@ export function CanvasTextNode({
   width,
   fontSize,
   lineHeight = 1.45,
+  height,
+  maxLines,
+  shadow,
   content,
   color,
   align,
@@ -44,7 +56,9 @@ export function CanvasTextNode({
   onTransformChange,
   registerNode,
 }: CanvasTextNodeProps) {
-  const textHeight = estimateTextHeight(content, width, fontSize, lineHeight);
+  const estimatedHeight = estimateTextHeight(content, width, fontSize, lineHeight);
+  const maxLineHeight = maxLines ? maxLines * fontSize * lineHeight : estimatedHeight;
+  const textHeight = Math.min(height && height > 0 ? height : estimatedHeight, maxLineHeight);
   const pageSize = { width: pageWidth, height: pageHeight };
   const fontFamily = resolveFontFamily(font);
 
@@ -61,11 +75,13 @@ export function CanvasTextNode({
       fill={color}
       align={align as never}
       lineHeight={lineHeight}
-      shadowColor="#fffaf2"
-      shadowBlur={10}
-      shadowOpacity={0.95}
-      shadowOffsetX={0}
-      shadowOffsetY={0}
+      height={textHeight}
+      wrap="char"
+      shadowColor={shadow?.color}
+      shadowBlur={shadow?.blur ?? 0}
+      shadowOpacity={shadow?.opacity ?? 0}
+      shadowOffsetX={shadow?.offset_x ?? 0}
+      shadowOffsetY={shadow?.offset_y ?? 0}
       draggable
       dragBoundFunc={(position) => clampPositionToPage(position, { width, height: textHeight }, pageSize)}
       onClick={onSelect}
@@ -96,9 +112,9 @@ export function CanvasTextNode({
 function resolveFontFamily(font?: string) {
   const key = String(font ?? "").trim();
   const map: Record<string, string> = {
-    handwriting: "Kaiti SC, LXGW WenKai, serif",
-    brush: "Kaiti SC, Songti SC, serif",
-    serif: "Songti SC, SimSun, serif",
+    handwriting: "LXGW WenKai, Kaiti SC, serif",
+    brush: "LXGW WenKai, Kaiti SC, serif",
+    serif: "LXGW WenKai, Songti SC, serif",
     "sans-serif": "PingFang SC, system-ui, sans-serif",
     "日系手写体": "Kaiti SC, LXGW WenKai, serif",
     "清和手写体": "Kaiti SC, LXGW WenKai, serif",
@@ -108,3 +124,5 @@ function resolveFontFamily(font?: string) {
   };
   return map[key] ?? (key || map.handwriting);
 }
+
+export { resolveFontFamily };

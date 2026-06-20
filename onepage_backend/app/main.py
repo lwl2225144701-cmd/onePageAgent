@@ -22,6 +22,10 @@ def _cors_origins() -> list[str]:
 @asynccontextmanager
 async def lifespan(ap: FastAPI):
     setup_logging(settings.DEBUG)
+    print(
+        f"ONEPAGE_BUILD_VERSION build_commit={settings.BUILD_COMMIT_SHA} layout_engine={settings.LAYOUT_ENGINE_VERSION}",
+        flush=True,
+    )
     await get_redis()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int
     ALLOWED_IMAGE_TYPES: list[str]
     ALLOWED_AUDIO_TYPES: list[str]
+    LAYOUT_ENGINE_VERSION: str = "v2"
+    BUILD_COMMIT_SHA: str = "development"
 
     # ── Database ──
     DATABASE_URL: str
@@ -109,6 +111,11 @@ class Settings(BaseSettings):
         if provider not in VISION_REVIEW_PROVIDERS:
             return "rules"
         return provider
+
+    @field_validator("LAYOUT_ENGINE_VERSION")
+    @classmethod
+    def validate_layout_engine_version(cls, value: str) -> str:
+        return "v2" if str(value or "").strip().lower() == "v2" else "v1"
 
 
 settings = Settings()

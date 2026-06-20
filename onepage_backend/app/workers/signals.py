@@ -25,7 +25,11 @@ def on_task_failure(sender, task_id, exception, traceback, **extra):
 @worker_process_init.connect
 def on_worker_process_init(**_extra):
     setup_logging(settings.DEBUG)
-    logger.info("worker_process_init")
+    logger.info("worker_process_init", build_commit=settings.BUILD_COMMIT_SHA, layout_engine=settings.LAYOUT_ENGINE_VERSION)
+    print(
+        f"ONEPAGE_WORKER_BUILD_VERSION build_commit={settings.BUILD_COMMIT_SHA} layout_engine={settings.LAYOUT_ENGINE_VERSION}",
+        flush=True,
+    )
     try:
         from app.core.database import engine
 

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type Konva from "konva";
 import { Layer, Rect, Stage, Text, Transformer } from "react-konva";
 import { CanvasAssetNode } from "@/modules/editor/components/canvas-asset-node";
-import { CanvasTextNode } from "@/modules/editor/components/canvas-text-node";
+import { CanvasTagNode } from "@/modules/editor/components/canvas-tag-node";
+import { CanvasTextNode, resolveFontFamily } from "@/modules/editor/components/canvas-text-node";
 import { clampPositionToPage, clampTransformToPage, estimateTextHeight } from "@/modules/editor/layout-bounds";
 import { useEditorStore } from "@/stores/editor-store";
 
@@ -15,7 +16,7 @@ const MAX_SCALE = 0.39;
 export type CanvasExportFormat = "png" | "jpeg";
 
 export type CanvasExportApi = {
-  toDataUrl: (format: CanvasExportFormat) => string | undefined;
+  toDataUrl: (format: CanvasExportFormat) => Promise<string | undefined>;
 };
 
 function getTagContent(type: string, props: Record<string, unknown>) {
@@ -62,15 +63,31 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
   const nodeRefs = useRef<Record<string, Konva.Node | null>>({});
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
 
-  const toDataUrl = useCallback((format: CanvasExportFormat) => {
+  const expectedAssetCount = useMemo(
+    () => layout.elements.filter((element) => ["image", "sticker", "decoration"].includes(element.type) && typeof element.props.url === "string" && element.props.url).length,
+    [layout.elements],
+  );
+
+  const toDataUrl = useCallback(async (format: CanvasExportFormat) => {
     const stage = stageRef.current;
     if (!stage) return undefined;
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+    const deadline = Date.now() + 5000;
+    while (stage.find("Image").length < expectedAssetCount && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+    }
+    if (stage.find("Image").length < expectedAssetCount) {
+      return undefined;
+    }
+    stage.draw();
     return stage.toDataURL({
       mimeType: format === "jpeg" ? "image/jpeg" : "image/png",
       quality: 0.95,
       pixelRatio: 2,
     });
-  }, []);
+  }, [expectedAssetCount]);
 
   useEffect(() => {
     onReady?.({ toDataUrl });
@@ -113,6 +130,16 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
       : typeof (layout as { meta?: { task_id?: unknown } }).meta?.task_id === "string"
         ? String((layout as { meta?: { task_id?: unknown } }).meta?.task_id)
         : "";
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") {
+      console.info("ONEPAGE_LAYOUT_ENGINE_USED", {
+        task_id: taskId || undefined,
+        layout_engine: (layout as { meta?: { layout_engine?: unknown } }).meta?.layout_engine,
+        template_id: (layout as { meta?: { template_id?: unknown } }).meta?.template_id ?? layout.style?.template_id,
+        build_commit: (layout as { meta?: { build_commit?: unknown } }).meta?.build_commit,
+      });
+    }
+  }, [layout, taskId]);
   const scale = useMemo(() => {
     if (!viewport.width || !viewport.height) return DEFAULT_SCALE;
 
@@ -170,8 +197,11 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                       x={frame.x}
                       y={frame.y}
                       width={frame.width}
+                      height={Number(props.h ?? frame.height)}
                       fontSize={fontSize}
                       lineHeight={lineHeight}
+                      maxLines={Number(props.maxLines ?? props.max_lines ?? 0) || undefined}
+                      shadow={readShadow(props.shadow)}
                       content={String(props.content ?? "")}
                       color={String(props.color ?? "#332b22")}
                       align={String(props.align ?? "left")}
@@ -202,20 +232,30 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                 { width: 120, height: fontSize },
               );
               return (
-                <CanvasTextNode
+                <CanvasTagNode
                   key={id}
                   registerNode={(node) => {
                     nodeRefs.current[id] = node;
                   }}
                   id={id}
+                  text={String(props.text ?? props.date ?? props.mood ?? props.weather ?? props.content ?? "")}
+                  icon={String(props.icon ?? "")}
                   x={frame.x}
                   y={frame.y}
                   width={frame.width}
+                  height={Number(props.h ?? frame.height)}
                   fontSize={fontSize}
-                  content={content}
+                  fontFamily={resolveFontFamily(String(props.font ?? layout.style?.font ?? "handwriting"))}
                   color={String(props.color ?? "#8B7D6B")}
-                  align={String(props.align ?? "left")}
-                  font={String(props.font ?? layout.style?.font ?? "handwriting")}
+                  fill={typeof props.fill === "string" ? props.fill : undefined}
+                  stroke={typeof props.stroke === "string" ? props.stroke : undefined}
+                  strokeWidth={Number(props.strokeWidth ?? 0)}
+                  borderRadius={Number(props.borderRadius ?? 0)}
+                  paddingX={Number(props.paddingX ?? 0)}
+                  paddingY={Number(props.paddingY ?? 0)}
+                  iconGap={Number(props.iconGap ?? 0)}
+                  opacity={Number(props.opacity ?? 1)}
+                  shadow={readShadow(props.shadow)}
                   selected={selectedId === id}
                   pageWidth={pageSize.width}
                   pageHeight={pageSize.height}
@@ -261,6 +301,13 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                   height={frame.height}
                   rotation={frame.rotation ?? 0}
                   opacity={Number(props.opacity ?? 1)}
+                  fit={readFit(props.fit)}
+                  objectPosition={String(props.objectPosition ?? "center")}
+                  visualBBox={readVisualBBox(props.visualBBox)}
+                  cornerRadius={Number(props.cornerRadius ?? 18)}
+                  mask={typeof props.mask === "string" ? props.mask : null}
+                  role={role}
+                  mimeType={typeof props.mimeType === "string" ? props.mimeType : undefined}
                   selected={selectedId === id}
                   onSelect={() => select(id)}
                   onPositionChange={(x, y) => updateElementPosition(id, x, y)}
@@ -310,6 +357,13 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                     height={frame.height}
                     rotation={frame.rotation ?? 0}
                     opacity={Number(props.opacity ?? 1)}
+                    fit={readFit(props.fit)}
+                    objectPosition={String(props.objectPosition ?? "center")}
+                    visualBBox={readVisualBBox(props.visualBBox)}
+                    cornerRadius={Number(props.cornerRadius ?? 18)}
+                    mask={typeof props.mask === "string" ? props.mask : null}
+                    role={role}
+                    mimeType={typeof props.mimeType === "string" ? props.mimeType : undefined}
                     selected={selectedId === id}
                     onSelect={() => select(id)}
                     registerNode={(node) => {
@@ -374,4 +428,26 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
       </div>
     </div>
   );
+}
+
+function readFit(value: unknown): "contain" | "cover" | "fill" | "watermark" {
+  return value === "cover" || value === "fill" || value === "watermark" ? value : "contain";
+}
+
+function readVisualBBox(value: unknown) {
+  if (!value || typeof value !== "object") return undefined;
+  const bbox = value as Record<string, unknown>;
+  return { x: Number(bbox.x ?? 0), y: Number(bbox.y ?? 0), w: Number(bbox.w ?? 1), h: Number(bbox.h ?? 1) };
+}
+
+function readShadow(value: unknown) {
+  if (!value || typeof value !== "object") return undefined;
+  const shadow = value as Record<string, unknown>;
+  return {
+    color: typeof shadow.color === "string" ? shadow.color : undefined,
+    blur: Number(shadow.blur ?? 0),
+    opacity: Number(shadow.opacity ?? 0),
+    offset_x: Number(shadow.offset_x ?? 0),
+    offset_y: Number(shadow.offset_y ?? 0),
+  };
 }

@@ -6,6 +6,7 @@ from app.ai import mcp_client
 from app.ai.pipeline import step4_material
 from app.ai.pipeline.step1_content import build_semantic_result
 from app.ai.pipeline.step6_repair import apply_fact_field_normalization
+from app.config import settings
 
 
 def _journal_context(*, date="2026-06-13", weather="阴", icon="☁️", icon_key="overcast", weather_success=True):
@@ -240,6 +241,7 @@ def test_step6_weather_failure_removes_model_weather_and_keeps_date():
 
 @pytest.mark.asyncio
 async def test_step4_uses_journal_context_weather(monkeypatch):
+    monkeypatch.setattr(settings, "LAYOUT_ENGINE_VERSION", "v1")
     captured = {}
 
     async def fake_retrieve_candidates(**kwargs):

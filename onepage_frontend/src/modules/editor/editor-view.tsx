@@ -148,11 +148,11 @@ export function EditorView({ initialPage, onBack, onSaved }: { initialPage?: Pag
     try {
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
       if (format === "pdf") {
-        const jpegDataUrl = canvasApi.toDataUrl("jpeg");
+        const jpegDataUrl = await canvasApi.toDataUrl("jpeg");
         if (!jpegDataUrl) throw new Error("export failed");
         downloadPdfFromJpegDataUrl(jpegDataUrl, `onepage-${timestamp}.pdf`, layout.page.width, layout.page.height);
       } else {
-        const dataUrl = canvasApi.toDataUrl(format);
+        const dataUrl = await canvasApi.toDataUrl(format);
         if (!dataUrl) throw new Error("export failed");
         downloadImageDataUrl(dataUrl, `onepage-${timestamp}.${format === "jpeg" ? "jpg" : "png"}`);
       }

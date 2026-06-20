@@ -46,6 +46,16 @@ export type LayoutElement = {
 };
 
 export type LayoutJSON = {
+  meta?: {
+    layout_engine?: string;
+    engine_version?: string;
+    template_id?: string;
+    template_locked?: boolean;
+    task_id?: string;
+    build_commit?: string;
+    worker_build_commit?: string;
+    [key: string]: unknown;
+  };
   page: {
     width: number;
     height: number;

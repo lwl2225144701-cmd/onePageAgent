@@ -18,6 +18,12 @@ from app.ai.fallback.repairer import LayoutRepairer
 from app.ai.fallback.validator import LayoutValidator
 from app.models.material import Material
 from app.services.material_service import MaterialService
+from app.config import settings
+
+
+@pytest.fixture(autouse=True)
+def use_legacy_review_contract(monkeypatch):
+    monkeypatch.setattr(settings, "LAYOUT_ENGINE_VERSION", "v1")
 
 
 def test_step1_study_semantics_include_avoid_tags():
@@ -253,7 +259,7 @@ async def test_material_review_rejects_recovery_semantic_conflicts():
 
     rejected_ids = {item["material_id"] for item in result["rejected_materials"]}
     assert {"congrats", "sales"}.issubset(rejected_ids)
-    assert "tape" in {
+    assert "tape" not in {
         item["material_id"]
         for items in result["reviewed_candidates"].values()
         for item in items

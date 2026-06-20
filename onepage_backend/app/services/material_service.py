@@ -43,22 +43,22 @@ class MaterialService:
         "咖啡",
     }
     SEMANTIC_QUERY_EXPANSIONS = {
-        "happy": ["开心", "爱心星星", "花草", "动物", "节日符号"],
-        "开心": ["happy", "爱心星星", "花草", "动物", "节日符号"],
-        "excited": ["开心", "节日符号", "爱心星星", "彩虹"],
-        "兴奋": ["开心", "节日符号", "爱心星星", "彩虹"],
-        "calm": ["平静", "治愈", "纸张纹理", "留白底", "花草", "人物场景"],
-        "平静": ["calm", "治愈", "纸张纹理", "留白底", "花草", "人物场景"],
-        "healing": ["治愈", "平静", "花草", "纸张纹理", "人物场景"],
-        "治愈": ["healing", "平静", "花草", "纸张纹理", "人物场景"],
-        "sad": ["雨天", "天气自然", "纸张纹理", "平静"],
-        "难过": ["sad", "雨天", "天气自然", "纸张纹理"],
-        "sadness": ["雨天", "天气自然", "纸张纹理"],
+        "happy": ["开心", "warm", "vivid"],
+        "开心": ["happy", "warm", "vivid"],
+        "excited": ["兴奋", "vivid", "playful"],
+        "兴奋": ["excited", "vivid", "playful"],
+        "calm": ["平静", "minimal", "muted"],
+        "平静": ["calm", "minimal", "muted"],
+        "healing": ["治愈", "warm", "soft"],
+        "治愈": ["healing", "warm", "soft"],
+        "sad": ["难过", "muted", "cool"],
+        "难过": ["sad", "muted", "cool"],
+        "sadness": ["sad", "muted", "cool"],
         "nostalgic": ["复古", "牛皮纸", "装饰花纹", "纸张纹理"],
         "怀旧": ["复古", "牛皮纸", "装饰花纹", "纸张纹理"],
         "minimal": ["极简", "留白底", "网格线条", "纸张纹理"],
-        "cute": ["可爱", "动物", "爱心星星", "花草"],
-        "warm": ["治愈", "纸张纹理", "花草", "牛皮纸"],
+        "cute": ["可爱", "pastel", "playful"],
+        "warm": ["治愈", "warm", "earth_tone"],
         "vintage": ["复古", "牛皮纸", "装饰花纹"],
         "海边": ["beach", "sea", "ocean", "天气自然", "海边"],
         "beach": ["海边", "天气自然", "人物场景"],
@@ -155,6 +155,9 @@ class MaterialService:
         all_materials = (await self.db.execute(query)).scalars().all()
         visible = [item for item in all_materials if self._is_visible_to_user(item, user_id)]
         return await self._attach_user_state(visible, user_id)
+
+    async def load_visible_layout_materials(self, *, user_id: str | None = None) -> list[Material]:
+        return await self._load_visible_materials(user_id=user_id)
 
     async def list_materials(
         self,
@@ -743,19 +746,14 @@ class MaterialService:
         score = 0
         reasons: list[str] = []
 
-        emotion_terms = self._expand_query_terms(emotion)
         scene_terms = self._expand_query_terms(scene)
         style_terms = self._expand_query_terms(style)
         weather_terms = self._expand_query_terms(weather)
 
-        emotion_match = self._matches_any_named_tag(emotion_terms, self._material_emotion_tags(material))
         scene_match = self._matches_any_named_tag(scene_terms, self._material_scene_tags(material))
         style_match = self._matches_any_named_tag(style_terms, self._material_style_tags(material))
         weather_match = self._matches_any_named_tag(weather_terms, self._material_scene_tags(material))
 
-        if emotion_match:
-            score += 3
-            reasons.append(f"emotion:{emotion_match}")
         if scene_match:
             score += 6
             reasons.append(f"scene:{scene_match}")
@@ -790,9 +788,6 @@ class MaterialService:
                 score += 1
         elif material.material_type == "decoration":
             if style or keywords:
-                score += 1
-        elif material.material_type == "sticker":
-            if emotion:
                 score += 1
 
         return score, reasons

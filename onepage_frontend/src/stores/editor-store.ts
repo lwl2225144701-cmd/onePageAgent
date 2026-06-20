@@ -69,6 +69,7 @@ function withSelectedElement(layout: LayoutJSON, selectedId: string, updater: (e
 function cloneLayout(layout: LayoutJSON): LayoutJSON {
   return {
     ...layout,
+    meta: layout.meta ? { ...layout.meta } : undefined,
     page: { ...layout.page },
     style: layout.style ? { ...layout.style } : undefined,
     elements: layout.elements.map((element) => ({

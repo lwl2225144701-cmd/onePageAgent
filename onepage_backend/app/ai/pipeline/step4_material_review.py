@@ -212,6 +212,9 @@ _VISION_CIRCUIT = _VisionReviewCircuitBreaker()
 async def run_material_review(ctx: dict) -> dict:
     """Step 4.5: review recalled materials before layout generation."""
 
+    if settings.LAYOUT_ENGINE_VERSION == "v2":
+        return _run_material_review_v2(ctx)
+
     start = time.monotonic()
     task_id = ctx.get("task_id")
     step4 = ctx.get("step4", {})
@@ -333,6 +336,37 @@ async def run_material_review(ctx: dict) -> dict:
         flush=True,
     )
     return result
+
+
+def _run_material_review_v2(ctx: dict) -> dict:
+    from app.ai.layout_v2.material_reviewer import review_material_role_groups
+    from app.ai.layout_v2.schemas import VisualBrief
+    from app.ai.layout_v2.visual_brief import build_visual_brief_from_context
+
+    task_id = ctx.get("task_id")
+    step4 = ctx.get("step4") if isinstance(ctx.get("step4"), dict) else {}
+    brief = VisualBrief.model_validate(ctx.get("visual_brief") or build_visual_brief_from_context(ctx))
+    role_groups = step4.get("role_groups") if isinstance(step4.get("role_groups"), dict) else {}
+    result = review_material_role_groups(brief=brief, role_groups=role_groups)
+    rejected = [*(step4.get("rejected_materials") or []), *result["rejected"]]
+    reviewed = result["role_groups"]
+    print(
+        "STEP4_REVIEW_RESULT "
+        f"task_id={task_id} kept={sum(len(items) for items in reviewed.values())} "
+        f"rejected={len(rejected)} fallback_mode=resolver model={result['review_model']} vision_failed=False",
+        flush=True,
+    )
+    return {
+        "summary": step4.get("summary", {}),
+        "role_groups": reviewed,
+        "rejected_materials": rejected,
+        "review_summary": {
+            "kept_count": sum(len(items) for items in reviewed.values()),
+            "rejected_count": len(rejected),
+            "model_used": result["review_model"],
+            "vision_failed": False,
+        },
+    }
 
 
 def _semantic_context(step1: dict) -> dict:
@@ -526,7 +560,7 @@ def _semantic_fit(text: str, semantic: dict) -> float:
     if hits:
         return min(0.94, 0.52 + hits * 0.12)
     if semantic.get("scene") == "daily_life":
-        return 0.48
+        return 0.12
     return 0.32
 
 
