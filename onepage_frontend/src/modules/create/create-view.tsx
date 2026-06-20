@@ -7,6 +7,7 @@ import { uploadAudio, uploadImage } from "@/api/uploads.api";
 import { getWeather } from "@/api/weather.api";
 import { useAITaskStore } from "@/stores/ai-task-store";
 import { useCreateStore } from "@/stores/create-store";
+import { toast } from "@/shared/toast";
 import { Button } from "@/shared/ui/button";
 import type { EnvironmentContext, WeatherIconKey, WeatherResponse } from "@/types/backend";
 import { useEffect, useMemo, useState } from "react";
@@ -141,7 +142,6 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
   }, [setWeather]);
 
   async function handleGenerate() {
-    onGenerated();
     try {
       const uploaded = await Promise.all(imageFiles.map((file) => uploadImage(file)));
       const imageUrls = uploaded.map((item) => item.file_url);
@@ -154,8 +154,9 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
         environment_context: buildEnvironmentContext(dateContext, weather, weatherStatus === "ready"),
       });
       setTask(task.task_id);
+      onGenerated();
     } catch {
-      setTask("mock-task");
+      toast("生成任务创建失败，请稍后重试");
     }
   }
 
@@ -271,7 +272,7 @@ export function CreateView({ onGenerated }: { onGenerated: () => void }) {
           </div>
           <div className="pointer-events-none absolute bottom-1 right-0 top-0 w-5 bg-gradient-to-l from-[#fffaf4]/78 to-transparent" />
         </div>
-        <Button className="mt-5 min-h-12 w-full rounded-full bg-gradient-to-b from-[#c8a37e] to-[#ab7b55] text-base font-semibold shadow-[0_10px_22px_rgba(139,93,52,0.18)] max-md:min-h-14" onClick={handleGenerate} disabled={!text.trim()}>
+        <Button className="mt-5 min-h-12 w-full rounded-full bg-gradient-to-b from-[#c8a37e] to-[#ab7b55] text-base font-semibold shadow-[0_10px_22px_rgba(139,93,52,0.18)] max-md:min-h-14" onClick={handleGenerate} disabled={!text.trim() || weatherStatus === "loading"}>
           生成我的一页
         </Button>
       </div>
