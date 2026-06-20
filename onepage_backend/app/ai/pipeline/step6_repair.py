@@ -25,9 +25,13 @@ async def run_validate_and_repair(ctx: dict) -> dict:
 
     validator = LayoutValidator()
     repairer = LayoutRepairer()
+    compiled_template_id = _compiled_template_id(raw_json)
 
-    # Try to parse and repair
-    repaired = repairer.repair(raw_json, [], asset_context=asset_context)
+    repaired = (
+        repairer.repair_conservative(raw_json, asset_context=asset_context)
+        if compiled_template_id
+        else repairer.repair(raw_json, [], asset_context=asset_context)
+    )
     if repaired is not None:
         repaired = apply_semantic_guard(repaired, ctx=ctx, asset_context=asset_context)
         repaired = apply_fact_field_normalization(repaired, ctx=ctx)
@@ -40,8 +44,10 @@ async def run_validate_and_repair(ctx: dict) -> dict:
         )
         if not errors:
             print(
-                f"ONEPAGE_LAYOUT_REPAIRED task_id={ctx.get('task_id')} mode=single_pass "
-                "actions=asset_allowlist,aspect_ratio,bounds,overlap,readability,fact_fields",
+                f"ONEPAGE_LAYOUT_REPAIRED task_id={ctx.get('task_id')} "
+                f"mode={'template_conservative' if compiled_template_id else 'single_pass'} "
+                f"template_id={compiled_template_id or ''} "
+                f"actions={'schema,asset_allowlist,bounds,fact_fields' if compiled_template_id else 'asset_allowlist,aspect_ratio,bounds,overlap,readability,fact_fields'}",
                 flush=True,
             )
             return repaired
@@ -50,7 +56,11 @@ async def run_validate_and_repair(ctx: dict) -> dict:
     # If repair didn't fully fix, try re-repairing with errors list
     if repaired is not None:
         errors = validator.validate(repaired, asset_context=asset_context)
-        repaired2 = repairer.repair(json.dumps(repaired, ensure_ascii=False), errors, asset_context=asset_context)
+        repaired2 = (
+            repairer.repair_conservative(json.dumps(repaired, ensure_ascii=False), asset_context=asset_context)
+            if compiled_template_id
+            else repairer.repair(json.dumps(repaired, ensure_ascii=False), errors, asset_context=asset_context)
+        )
         if repaired2 is not None:
             repaired2 = apply_semantic_guard(repaired2, ctx=ctx, asset_context=asset_context)
             repaired2 = apply_fact_field_normalization(repaired2, ctx=ctx)
@@ -94,6 +104,19 @@ async def run_validate_and_repair(ctx: dict) -> dict:
     fallback_layout = apply_fact_field_normalization(fallback_layout, ctx=ctx)
     print(f"ONEPAGE_LAYOUT_REPAIRED task_id={ctx.get('task_id')} mode=fallback_raw", flush=True)
     return apply_final_page_quality_check(fallback_layout, ctx=ctx, asset_context=asset_context)
+
+
+def _compiled_template_id(raw_json: object) -> str:
+    if not isinstance(raw_json, str):
+        return ""
+    try:
+        payload = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    style = payload.get("style") if isinstance(payload.get("style"), dict) else {}
+    return str(payload.get("template_id") or style.get("template_id") or "").strip()
 
 
 SEMANTIC_GUARD_SCENES = {"self_growth", "study_reflection", "exam_prep", "work"}

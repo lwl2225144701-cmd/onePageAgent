@@ -27,6 +27,16 @@ class LayoutRepairer:
         layout = self._protect_text_readability(layout)
         return layout
 
+    def repair_conservative(self, raw_json_str: str, asset_context: dict | None = None) -> dict | None:
+        """Repair only schema, allowlist, z-index, and page-bound violations."""
+        layout = self._parse_json(raw_json_str)
+        if layout is None:
+            return None
+        layout = self._fill_missing_fields(layout)
+        layout = self._fix_z_indexes(layout)
+        layout = self._sanitize_asset_urls(layout, asset_context or {})
+        return self._clamp_coordinates(layout)
+
     def _parse_json(self, raw: str) -> dict | None:
         """Try multiple strategies to parse JSON."""
         strategies = [
@@ -689,7 +699,6 @@ class LayoutRepairer:
             height = self._coerce_ratio(metadata.get("asset_height"))
             ratio = width / height if width and height else None
         current_w = self._coerce_number(props.get("w", 0), 0) or self._default_element_size(element)[0]
-        current_h = self._coerce_number(props.get("h", 0), 0) or self._default_element_size(element)[1]
 
         if element.get("type") == "image":
             target_w = page_w

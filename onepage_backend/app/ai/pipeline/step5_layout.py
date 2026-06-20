@@ -1,10 +1,10 @@
 import json
 import structlog
 
-from app.ai.fallback.templates import get_fallback_layout
+from app.ai.layout.compiler import compile_layout_template
 from app.ai.pipeline.llm_json import extract_message_content
 from app.ai.prompts.layout_fewshots import (
-    build_layout_policy,
+    content_length_bucket,
     select_layout_fewshots,
     selected_material_bundle,
 )
@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 async def run_layout_generation(ctx: dict) -> str:
-    """Step 5: Generate Layout JSON via LLM."""
+    """Select one template with the LLM, then compile deterministic Layout JSON."""
     step1 = ctx.get("step1", {})
     step2 = ctx.get("step2", {})
     step3 = ctx.get("step3", {})
@@ -28,7 +28,7 @@ async def run_layout_generation(ctx: dict) -> str:
         ctx["step4_review"]["selected_materials"] = selected_materials
     ctx["step5_selected_materials"] = selected_materials
     material_bundle = selected_material_bundle(selected_materials)
-    fewshot_candidates, fewshots = select_layout_fewshots(
+    template_candidates, templates = select_layout_fewshots(
         content_text=input_json.get("text", "") or input_json.get("content_text", ""),
         semantic=step1,
         style=step3,
@@ -53,48 +53,37 @@ async def run_layout_generation(ctx: dict) -> str:
     print(
         "ONEPAGE_FEWSHOT_CANDIDATES "
         f"task_id={ctx.get('task_id')} "
-        f"items={json.dumps(fewshot_candidates, ensure_ascii=False)}",
+        f"items={json.dumps(template_candidates, ensure_ascii=False)}",
         flush=True,
     )
     print(
         "ONEPAGE_FEWSHOT_SELECTED "
         f"task_id={ctx.get('task_id')} "
-        f"examples={json.dumps([item['id'] for item in fewshots], ensure_ascii=False)}",
+        f"examples={json.dumps([item['id'] for item in templates], ensure_ascii=False)}",
         flush=True,
     )
 
-    # Build context for the prompt
     content_text = input_json.get("text", "") or input_json.get("content_text", "")
-    image_info = json.dumps(step1.get("image_descriptions", []), ensure_ascii=False)
     journal_context = ctx.get("journal_context", {}) if isinstance(ctx.get("journal_context"), dict) else {}
     authoritative_context = build_authoritative_context(journal_context)
-    weather = authoritative_context["weather_text"] or ""
     mood = input_json.get("mood", step2.get("primary_emotion", ""))
-    page_date = authoritative_context["date_text"]
     text_analysis = step1.get("text_analysis", {}) if isinstance(step1.get("text_analysis"), dict) else {}
-    layout_policy = build_layout_policy(
-        content_text=content_text,
-        title_hint=str(step1.get("topic") or text_analysis.get("topic") or ""),
-        selected_materials=material_bundle,
-    )
+    title_hint = str(step1.get("topic") or text_analysis.get("topic") or "今天的一页").strip() or "今天的一页"
+    candidate_ids = [item["id"] for item in templates]
+    default_template_id = candidate_ids[0]
     prompt = _build_layout_prompt(
         content_text=content_text,
-        image_info=image_info,
+        title_hint=title_hint,
         style=step3,
         emotion_data=step2,
-        materials=step4,
         selected_materials=material_bundle,
-        layout_policy=layout_policy,
-        weather=weather,
-        mood=mood,
-        page_date=page_date,
-        authoritative_context=authoritative_context,
-        fewshots=fewshots,
+        semantic=step1,
+        templates=templates,
     )
     print(
         "ONEPAGE_LAYOUT_PROMPT_BUILT "
         f"task_id={ctx.get('task_id')} "
-        f"fewshot_ids={json.dumps([item['id'] for item in fewshots], ensure_ascii=False)} "
+        f"fewshot_ids={json.dumps(candidate_ids, ensure_ascii=False)} "
         f"selected_material_ids={json.dumps([item.get('material_id') for item in selected_materials], ensure_ascii=False)} "
         f"content_length={len(content_text)} prompt_chars={len(prompt)}",
         flush=True,
@@ -102,46 +91,59 @@ async def run_layout_generation(ctx: dict) -> str:
     print(
         "STEP5_AUTHORITATIVE_CONTEXT "
         f"task_id={ctx.get('task_id')} "
-        f"date={page_date} "
-        f"weather={weather or 'unknown'} "
+        f"date={authoritative_context['date_text']} "
+        f"weather={authoritative_context['weather_text'] or 'unknown'} "
         f"weather_icon={authoritative_context['weather_icon'] or ''}",
         flush=True,
     )
 
-    # Try primary model (Qwen)
-    try:
-        result = await _call_qwen(prompt)
-        if result:
-            print(f"STEP5_MODEL_OK task_id={ctx.get('task_id')} model=qwen", flush=True)
-            print(
-                f"ONEPAGE_LAYOUT_GENERATED task_id={ctx.get('task_id')} model=qwen "
-                f"bytes={len(result)} element_count={_generated_element_count(result)}",
-                flush=True,
-            )
-            return result
-    except Exception as e:
-        logger.warning("step5_qwen_failed", error=str(e))
+    decision = None
+    model_name = "deterministic"
+    for name, caller in (("qwen", _call_qwen), ("deepseek", _call_deepseek)):
+        try:
+            raw_decision = await caller(prompt)
+            decision = _parse_layout_decision(raw_decision, candidate_ids=candidate_ids, content_text=content_text, title_hint=title_hint)
+            if decision:
+                model_name = name
+                print(f"STEP5_MODEL_OK task_id={ctx.get('task_id')} model={name}", flush=True)
+                break
+        except Exception as exc:
+            logger.warning(f"step5_{name}_failed", error=str(exc))
 
-    # Try fallback model (DeepSeek)
-    try:
-        result = await _call_deepseek(prompt)
-        if result:
-            print(f"STEP5_MODEL_OK task_id={ctx.get('task_id')} model=deepseek", flush=True)
-            print(
-                f"ONEPAGE_LAYOUT_GENERATED task_id={ctx.get('task_id')} model=deepseek "
-                f"bytes={len(result)} element_count={_generated_element_count(result)}",
-                flush=True,
-            )
-            return result
-    except Exception as e:
-        logger.warning("step5_deepseek_failed", error=str(e))
+    if decision is None:
+        decision = _default_layout_decision(default_template_id, content_text=content_text, title_hint=title_hint)
+        print(f"STEP5_MODEL_FALLBACK task_id={ctx.get('task_id')} template_id={default_template_id}", flush=True)
 
-    # Ultimate fallback
-    emotion = step2.get("primary_emotion", "neutral")
-    print(f"STEP5_MODEL_FALLBACK task_id={ctx.get('task_id')} emotion={emotion}", flush=True)
-    fallback = json.dumps(get_fallback_layout(emotion, content_text=content_text, page_date=page_date), ensure_ascii=False)
-    print(f"ONEPAGE_LAYOUT_GENERATED task_id={ctx.get('task_id')} model=fallback bytes={len(fallback)}", flush=True)
-    return fallback
+    print(
+        "ONEPAGE_TEMPLATE_SELECTED "
+        f"task_id={ctx.get('task_id')} template_id={decision['template_id']} model={model_name}",
+        flush=True,
+    )
+    layout = compile_layout_template(
+        template_id=decision["template_id"],
+        title=decision["title"],
+        body=decision["body"],
+        mood=mood,
+        authoritative_context=authoritative_context,
+        selected_materials=material_bundle,
+        style=step3,
+        optional_slots=decision["optional_slots"],
+    )
+    ctx["step5_template_id"] = decision["template_id"]
+    ctx["step5_decision"] = decision
+    compiled = json.dumps(layout, ensure_ascii=False)
+    print(
+        "ONEPAGE_TEMPLATE_COMPILED "
+        f"task_id={ctx.get('task_id')} template_id={decision['template_id']} element_count={len(layout['elements'])}",
+        flush=True,
+    )
+    print(
+        "ONEPAGE_LAYOUT_GENERATED "
+        f"task_id={ctx.get('task_id')} model={model_name} template_id={decision['template_id']} "
+        f"bytes={len(compiled)} element_count={len(layout['elements'])}",
+        flush=True,
+    )
+    return compiled
 
 
 def _generated_element_count(raw_layout: str) -> int:
@@ -322,35 +324,64 @@ def build_authoritative_context(journal_context: dict) -> dict:
 def _build_layout_prompt(
     *,
     content_text: str,
-    image_info: str,
+    title_hint: str,
     style: dict,
     emotion_data: dict,
-    materials: dict,
     selected_materials: dict,
-    layout_policy: dict,
-    weather: str,
-    mood,
-    page_date: str,
-    authoritative_context: dict,
-    fewshots: list[dict],
+    semantic: dict,
+    templates: list[dict],
 ) -> str:
     return USER_TEMPLATE.format(
         content_text=content_text or "记录今日点滴",
-        image_info=image_info,
+        title_hint=title_hint,
         theme=style.get("theme", "healing"),
-        font=style.get("font", "handwriting"),
-        color_palette=json.dumps(style.get("color_palette", [])),
-        layout_style=style.get("layout_style", "minimal"),
         emotion=json.dumps(emotion_data, ensure_ascii=False),
-        recommended_materials=json.dumps(materials, ensure_ascii=False),
-        authoritative_journal_context=json.dumps(authoritative_context, ensure_ascii=False),
-        selected_materials=json.dumps(selected_materials, ensure_ascii=False),
-        layout_policy=json.dumps(layout_policy, ensure_ascii=False),
-        selected_fewshots=json.dumps(fewshots, ensure_ascii=False),
-        weather=weather,
-        mood=mood or "记录",
-        page_date=page_date or "",
+        semantic=json.dumps(semantic, ensure_ascii=False),
+        content_length=content_length_bucket(content_text),
+        available_roles=json.dumps([role for role, value in selected_materials.items() if value], ensure_ascii=False),
+        template_candidates=json.dumps(templates, ensure_ascii=False),
     )
+
+
+def _parse_layout_decision(
+    raw: str | None,
+    *,
+    candidate_ids: list[str],
+    content_text: str,
+    title_hint: str,
+) -> dict | None:
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        try:
+            payload = json.loads(raw[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(payload, dict) or str(payload.get("template_id") or "") not in candidate_ids:
+        return None
+    optional = payload.get("optional_slots") if isinstance(payload.get("optional_slots"), dict) else {}
+    allowed_slots = {"background", "focal_sticker", "supporting_sticker", "tape", "decoration", "frame"}
+    return {
+        "template_id": str(payload["template_id"]),
+        "title": str(payload.get("title") or title_hint or "今天的一页").strip()[:40] or "今天的一页",
+        "body": str(payload.get("body") or content_text).strip() or content_text,
+        "optional_slots": {key: bool(value) for key, value in optional.items() if key in allowed_slots},
+    }
+
+
+def _default_layout_decision(template_id: str, *, content_text: str, title_hint: str) -> dict:
+    return {
+        "template_id": template_id,
+        "title": title_hint[:40] or "今天的一页",
+        "body": content_text or "记录今日点滴",
+        "optional_slots": {},
+    }
 
 
 async def _call_qwen(prompt: str) -> str | None:
@@ -375,8 +406,8 @@ async def _call_layout_model(*, client_factory, prompt: str) -> str | None:
         response = await client.chat(
             messages=[{"role": "user", "content": prompt}],
             system_prompt=SYSTEM_PROMPT,
-            temperature=0.7,
-            max_tokens=4096,
+            temperature=0.2,
+            max_tokens=1024,
             response_format={"type": "json_object"},
         )
         content = extract_message_content(response)

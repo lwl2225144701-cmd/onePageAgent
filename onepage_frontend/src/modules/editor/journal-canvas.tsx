@@ -41,6 +41,19 @@ function getTagWidth(content: string, fontSize: number, explicitWidth?: unknown)
   return Math.max(160, Math.min(420, content.length * fontSize * 0.95 + 36));
 }
 
+function getAssetBoundsOptions(type: string, role: string, page: { width: number; height: number }) {
+  if (role === "background" || role === "frame") {
+    return { maxWidth: page.width, maxHeight: page.height };
+  }
+  if (role === "tape") {
+    return { maxWidth: page.width * 0.9, maxHeight: page.height * 0.14 };
+  }
+  if (type === "image") {
+    return { maxWidth: page.width * 0.72, maxHeight: page.height * 0.5 };
+  }
+  return { maxWidth: page.width * 0.38, maxHeight: page.height * 0.28 };
+}
+
 export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | undefined) => void }) {
   const { layout, selectedId, select, updateElementPosition, updateElementTransform } = useEditorStore();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -92,6 +105,8 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
   }, []);
 
   const pageSize = { width: layout.page.width, height: layout.page.height };
+  const pageBorderInset = Number(layout.style?.page_border_inset ?? 24);
+  const pageBorderWidth = Number(layout.style?.page_border_width ?? 0);
   const taskId =
     typeof (layout as { task_id?: unknown }).task_id === "string"
       ? String((layout as { task_id?: unknown }).task_id)
@@ -113,6 +128,18 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
         <Stage ref={stageRef} width={layout.page.width * scale} height={layout.page.height * scale} scaleX={scale} scaleY={scale}>
           <Layer>
             <Rect width={layout.page.width} height={layout.page.height} fill={layout.page.background} cornerRadius={28} />
+            {pageBorderWidth > 0 ? (
+              <Rect
+                x={pageBorderInset}
+                y={pageBorderInset}
+                width={layout.page.width - pageBorderInset * 2}
+                height={layout.page.height - pageBorderInset * 2}
+                stroke={String(layout.style?.page_border ?? "#E5D8C7")}
+                strokeWidth={pageBorderWidth}
+                cornerRadius={24}
+                listening={false}
+              />
+            ) : null}
             {layout.elements
               .slice()
               .sort((a, b) => a.z_index - b.z_index)
@@ -122,12 +149,13 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                 if (element.type === "text") {
                   const fontSize = Number(props.size ?? 48);
                   const width = Number(props.w ?? 700);
+                  const lineHeight = Number(props.lineHeight ?? 1.45);
                   const frame = clampTransformToPage(
                     {
                       x: Number(props.x ?? 0),
                       y: Number(props.y ?? 0),
                       width,
-                      height: estimateTextHeight(String(props.content ?? ""), width, fontSize),
+                      height: estimateTextHeight(String(props.content ?? ""), width, fontSize, lineHeight),
                     },
                     pageSize,
                     { width: 160, height: fontSize },
@@ -143,6 +171,7 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                       y={frame.y}
                       width={frame.width}
                       fontSize={fontSize}
+                      lineHeight={lineHeight}
                       content={String(props.content ?? "")}
                       color={String(props.color ?? "#332b22")}
                       align={String(props.align ?? "left")}
@@ -199,6 +228,8 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
               );
             }
             if (element.type === "image") {
+              const role = String(props.role ?? "");
+              const boundsOptions = getAssetBoundsOptions(element.type, role, pageSize);
               const frame = clampTransformToPage(
                 {
                   x: Number(props.x ?? 0),
@@ -209,10 +240,7 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                 },
                 pageSize,
                 { width: 80, height: 80 },
-                {
-                  maxWidth: pageSize.width * 0.72,
-                  maxHeight: pageSize.height * 0.5,
-                },
+                boundsOptions,
               );
               return (
                 <CanvasAssetNode
@@ -243,10 +271,7 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                         { x, y, width, height, rotation },
                         pageSize,
                         { width: 80, height: 80 },
-                        {
-                          maxWidth: pageSize.width * 0.72,
-                          maxHeight: pageSize.height * 0.5,
-                        },
+                        boundsOptions,
                       ),
                     )
                   }
@@ -255,6 +280,8 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
             }
             if (element.type === "sticker" || element.type === "decoration") {
               if (typeof props.url === "string" && props.url) {
+                const role = String(props.role ?? "");
+                const boundsOptions = getAssetBoundsOptions(element.type, role, pageSize);
                 const frame = clampTransformToPage(
                   {
                     x: Number(props.x ?? 0),
@@ -265,10 +292,7 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                   },
                   pageSize,
                   { width: 48, height: 48 },
-                  {
-                    maxWidth: pageSize.width * 0.38,
-                    maxHeight: pageSize.height * 0.28,
-                  },
+                  boundsOptions,
                 );
                 return (
                   <CanvasAssetNode
@@ -299,10 +323,7 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
                           { x, y, width, height, rotation },
                           pageSize,
                           { width: 48, height: 48 },
-                          {
-                            maxWidth: pageSize.width * 0.38,
-                            maxHeight: pageSize.height * 0.28,
-                          },
+                          boundsOptions,
                         ),
                       )
                     }

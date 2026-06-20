@@ -11,6 +11,7 @@ type CanvasTextNodeProps = {
   y: number;
   width: number;
   fontSize: number;
+  lineHeight?: number;
   content: string;
   color: string;
   align: string;
@@ -30,6 +31,7 @@ export function CanvasTextNode({
   y,
   width,
   fontSize,
+  lineHeight = 1.45,
   content,
   color,
   align,
@@ -42,7 +44,7 @@ export function CanvasTextNode({
   onTransformChange,
   registerNode,
 }: CanvasTextNodeProps) {
-  const textHeight = estimateTextHeight(content, width, fontSize);
+  const textHeight = estimateTextHeight(content, width, fontSize, lineHeight);
   const pageSize = { width: pageWidth, height: pageHeight };
   const fontFamily = resolveFontFamily(font);
 
@@ -58,7 +60,7 @@ export function CanvasTextNode({
       fontSize={fontSize}
       fill={color}
       align={align as never}
-      lineHeight={1.45}
+      lineHeight={lineHeight}
       shadowColor="#fffaf2"
       shadowBlur={10}
       shadowOpacity={0.95}
@@ -75,13 +77,13 @@ export function CanvasTextNode({
         const node = event.target as Konva.Text;
         const scaleX = node.scaleX();
         const nextWidth = Math.max(120, node.width() * scaleX);
-        const nextHeight = estimateTextHeight(content, nextWidth, fontSize);
+        const nextHeight = estimateTextHeight(content, nextWidth, fontSize, lineHeight);
         node.scaleX(1);
         node.scaleY(1);
         const next = clampTransformToPage(
           { x: node.x(), y: node.y(), width: nextWidth, height: nextHeight, rotation: node.rotation() },
           pageSize,
-          { width: 120, height: fontSize * 1.45 },
+          { width: 120, height: fontSize * lineHeight },
         );
         onTransformChange(next.x, next.y, next.width, next.rotation ?? 0);
       }}
