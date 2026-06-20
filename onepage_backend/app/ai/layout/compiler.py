@@ -38,7 +38,7 @@ def compile_layout_template(
     spec = deepcopy(get_template_spec(template_id))
     page_style = spec["page_style"]
     slots = spec["slots"]
-    optional_slots = optional_slots if isinstance(optional_slots, dict) else {}
+    optional_slots = _resolve_optional_slots(spec, optional_slots)
     elements: list[dict[str, Any]] = []
 
     _append_material_slot(elements, slots, "background", selected_materials.get("background"), optional_slots, required=_required(spec, "background"))
@@ -120,7 +120,7 @@ def _append_material_slot(
 ) -> None:
     if slot_name not in slots or not isinstance(material, dict):
         return
-    if not required and decisions.get(slot_name) is False:
+    if not required and not decisions.get(slot_name, False):
         return
     if slot_name == "background" and material.get("background_safe") is False:
         return
@@ -251,3 +251,22 @@ def _material_url(material: dict[str, Any]) -> str:
 
 def _required(spec: dict[str, Any], role: str) -> bool:
     return role in set(spec.get("required_roles", []))
+
+
+def _resolve_optional_slots(
+    spec: dict[str, Any],
+    decisions: dict[str, bool] | None,
+) -> dict[str, bool]:
+    provided = decisions if isinstance(decisions, dict) else {}
+    defaults = spec.get("default_optional_slots")
+    defaults = defaults if isinstance(defaults, dict) else {}
+    optional_roles = set(spec.get("optional_roles", []))
+    resolved: dict[str, bool] = {}
+    for role in optional_roles:
+        value = provided.get(role)
+        if isinstance(value, bool):
+            resolved[role] = value
+            continue
+        default = defaults.get(role)
+        resolved[role] = default if isinstance(default, bool) else False
+    return resolved

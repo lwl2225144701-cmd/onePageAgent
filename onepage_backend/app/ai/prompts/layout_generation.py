@@ -26,7 +26,7 @@ USER_TEMPLATE = """请为当前手帐选择一个排版模板。
     "focal_sticker": true,
     "supporting_sticker": false,
     "tape": true,
-    "decoration": true,
+    "decoration": false,
     "frame": false
   }}
 }}

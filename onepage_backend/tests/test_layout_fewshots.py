@@ -80,6 +80,7 @@ def test_compiler_is_deterministic_and_uses_selected_assets_only():
         "authoritative_context": _authoritative_context(),
         "selected_materials": bundle,
         "style": {"theme": "healing"},
+        "optional_slots": {"decoration": True},
     }
 
     first = compile_layout_template(**kwargs)
@@ -129,6 +130,53 @@ def test_optional_slots_can_be_disabled_without_placeholder_elements():
     )
 
     assert not any(item.get("props", {}).get("role") == "decoration" for item in layout["elements"])
+
+
+def test_empty_optional_slots_use_conservative_template_defaults():
+    items = [
+        _material("bg", "background", "background"),
+        _material("cat", "focal_sticker", "sticker"),
+        _material("tape", "tape", "decoration"),
+        _material("friend", "supporting_sticker", "sticker"),
+        _material("flower", "decoration", "decoration"),
+        _material("frame", "frame", "decoration"),
+    ]
+    layout = compile_layout_template(
+        template_id="healing_watermark_center_sticker",
+        title="被猫治愈的一天",
+        body="今天和猫一起看电影。",
+        mood="开心",
+        authoritative_context=_authoritative_context(),
+        selected_materials=selected_material_bundle(items),
+        style={"theme": "healing"},
+        optional_slots={},
+    )
+
+    material_roles = {
+        item["props"]["role"]
+        for item in layout["elements"]
+        if item["type"] in {"image", "sticker", "decoration"}
+    }
+    assert material_roles == {"background", "focal_sticker", "tape"}
+
+
+def test_invalid_optional_slot_values_fall_back_to_template_defaults():
+    decision = _parse_layout_decision(
+        json.dumps(
+            {
+                "template_id": "healing_watermark_center_sticker",
+                "title": "被猫治愈的一天",
+                "body": "今天和猫一起看电影。",
+                "optional_slots": {"decoration": "true", "frame": 1, "tape": False},
+            }
+        ),
+        candidate_ids=["healing_watermark_center_sticker"],
+        content_text="今天和猫一起看电影。",
+        title_hint="今天的一页",
+    )
+
+    assert decision is not None
+    assert decision["optional_slots"] == {"tape": False}
 
 
 def test_layout_decision_accepts_only_candidate_template():

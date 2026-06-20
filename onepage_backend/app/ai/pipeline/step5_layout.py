@@ -371,7 +371,11 @@ def _parse_layout_decision(
         "template_id": str(payload["template_id"]),
         "title": str(payload.get("title") or title_hint or "今天的一页").strip()[:40] or "今天的一页",
         "body": str(payload.get("body") or content_text).strip() or content_text,
-        "optional_slots": {key: bool(value) for key, value in optional.items() if key in allowed_slots},
+        "optional_slots": {
+            key: value
+            for key, value in optional.items()
+            if key in allowed_slots and isinstance(value, bool)
+        },
     }
 
 
