@@ -23,7 +23,11 @@ from app.ai.pipeline.step4_material import run_material_matching
 from app.ai.pipeline.step4_material_review import run_material_review
 from app.ai.pipeline.step6_repair import run_validate_and_repair
 from app.config import settings
-from scripts.backfill_material_visual_metadata import calculate_visual_bbox
+from scripts.backfill_material_visual_metadata import (
+    calculate_visual_bbox,
+    normalize_visual_payload,
+    parse_batch_json,
+)
 
 
 def candidate(material_id: str, role: MaterialRole, **metadata_overrides) -> MaterialCandidate:
@@ -276,6 +280,28 @@ def test_visual_bbox_uses_alpha_subject_bounds():
 def test_visual_bbox_falls_back_to_full_image_for_svg_or_invalid_bytes():
     assert calculate_visual_bbox(b"<svg/>", mime_type="image/svg+xml").model_dump() == {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0}
     assert calculate_visual_bbox(b"not-an-image").model_dump() == {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0}
+
+
+def test_backfill_normalizes_model_enums_and_batch_labels():
+    payload = normalize_visual_payload(
+        {
+            "complexity": "中等",
+            "density": "低密度",
+            "text_heavy": "否",
+            "background_safe": "是",
+            "suggested_role": "主体贴图",
+            "risk_flags": ["party", "未知风险"],
+        }
+    )
+    parsed = parse_batch_json('{"items":[{"label":"A01","complexity":"low"}]}')
+
+    assert payload["complexity"] == "medium"
+    assert payload["density"] == "low"
+    assert payload["text_heavy"] is False
+    assert payload["background_safe"] is True
+    assert payload["suggested_role"] == "focal_sticker"
+    assert payload["risk_flags"] == ["party"]
+    assert parsed["A01"]["complexity"] == "low"
 
 
 def test_compiler_layout_is_json_serializable():
