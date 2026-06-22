@@ -14,8 +14,10 @@ import httpx
 from PIL import Image, ImageChops, ImageDraw, ImageOps
 from sqlalchemy import select
 
-from app.ai.gateway.dashscope_vision_client import DashScopeVisionReviewClient, build_image_data_url
+from app.ai.gateway.dashscope_vision_client import build_image_data_url
+from app.ai.gateway.vision_client_factory import create_vision_review_client
 from app.ai.layout_v2.schemas import MaterialVisualMetadata, VisualBBox
+from app.config import settings
 from app.core.database import async_session_factory
 from app.models.material import Material
 
@@ -38,6 +40,15 @@ RISK_VALUES = {
 
 async def main() -> None:
     args = parse_args()
+    client = create_vision_review_client()
+    if client is None:
+        print("VISION_REVIEW_PROVIDER=rules 不支持视觉元数据回填，请切换 dashscope 或 local_ollama", flush=True)
+        return
+    print(
+        f"MATERIAL_V2_BACKFILL_PROVIDER provider={settings.VISION_REVIEW_PROVIDER} model={client.model}",
+        flush=True,
+    )
+    await client.close()
     stats = {"success": 0, "skipped": 0, "failed": 0}
     failures: list[dict[str, str]] = []
     async with async_session_factory() as db:
@@ -135,7 +146,13 @@ async def review_material_batch(
     if not prepared:
         return {"updates": updates, "failures": failures}
 
-    client = DashScopeVisionReviewClient()
+    client = create_vision_review_client()
+    if client is None:
+        failures.extend(
+            {"material_id": str(item["material"].id), "error": "vision_review_provider_rules"}
+            for item in prepared
+        )
+        return {"updates": updates, "failures": failures}
     try:
         sheet_bytes = build_contact_sheet(prepared)
         response = await client.review_contact_sheet(
@@ -143,7 +160,11 @@ async def review_material_batch(
             contact_sheet_data_url=build_image_data_url(sheet_bytes, "image/jpeg"),
             task_id=f"backfill:{offset + 1}-{offset + len(batch)}",
         )
-        payload_by_label = parse_batch_json(response.get("content"))
+        content = response.get("content")
+        try:
+            payload_by_label = parse_batch_json(content)
+        except Exception as exc:
+            raise ValueError(f"{exc}:content_length={len(str(content or ''))}") from exc
     except Exception as exc:
         failures.extend(
             {"material_id": str(item["material"].id), "error": str(exc)[:240]}
@@ -265,7 +286,7 @@ def build_prompt(prepared: list[dict[str, Any]]) -> str:
             }
         )
     return (
-        "分析这张手帐素材编号宫格，只输出 JSON，不要 Markdown。每个编号必须且只能返回一条。\n"
+        "分析这张手帐素材编号宫格，只输出 JSON，不要解释，不要 Markdown，不要代码块。每个编号必须且只能返回一条。\n"
         "字段：label、subjects、actions、scenes、objects、detected_text、text_heavy、risk_flags、suggested_role、background_safe、visual_style、color_tone、complexity、density。\n"
         "complexity 和 density 只能是 low、medium、high。suggested_role 只能是 background、focal_sticker、supporting_sticker、tape、frame、decoration、none。\n"
         "risk_flags 只能使用 valentine、wedding、romance、festival_text、medical、sick、wheelchair、elderly_care、religion、business_sales、party。\n"
@@ -304,11 +325,7 @@ def calculate_visual_bbox(image_bytes: bytes, *, mime_type: str = "") -> VisualB
 
 def parse_batch_json(content: Any) -> dict[str, dict[str, Any]]:
     text = str(content or "").strip()
-    if "```" in text:
-        text = text.replace("```json", "").replace("```", "").strip()
-    if "{" in text and "}" in text:
-        text = text[text.find("{") : text.rfind("}") + 1]
-    payload = json.loads(text)
+    payload = json.loads(extract_first_json_object(text))
     if not isinstance(payload, dict):
         raise ValueError("vision_metadata_not_object")
     raw_items = payload.get("items")
@@ -324,6 +341,35 @@ def parse_batch_json(content: Any) -> dict[str, dict[str, Any]]:
     if not result:
         raise ValueError("vision_metadata_items_missing")
     return result
+
+
+def extract_first_json_object(text: str) -> str:
+    cleaned = text.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
+    start = cleaned.find("{")
+    if start < 0:
+        raise ValueError("vision_metadata_json_object_missing")
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(cleaned)):
+        char = cleaned[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return cleaned[start : index + 1]
+    raise ValueError("vision_metadata_json_object_incomplete")
 
 
 def normalize_visual_payload(payload: dict[str, Any]) -> dict[str, Any]:

@@ -304,6 +304,14 @@ def test_backfill_normalizes_model_enums_and_batch_labels():
     assert parsed["A01"]["complexity"] == "low"
 
 
+def test_backfill_parses_first_json_object_from_local_model_explanation():
+    parsed = parse_batch_json(
+        '分析结果如下：```json\n{"items":[{"label":"A01","density":"低"}]}\n``` 后续说明 {"ignored":true}'
+    )
+
+    assert parsed["A01"]["density"] == "低"
+
+
 def test_compiler_layout_is_json_serializable():
     brief = build_visual_brief(text="短短的一句话", mood="平静")
     plan = LayoutPlan(template_id="minimal_text_only", materials={}, title="今天的一页", score=0.2)

@@ -8,12 +8,8 @@ from urllib.parse import urlparse
 import structlog
 
 from app.config import settings
-from app.ai.gateway.dashscope_vision_client import (
-    DashScopeVisionReviewClient,
-    build_image_data_url,
-    normalize_dashscope_vision_model,
-    validate_data_url_size,
-)
+from app.ai.gateway.dashscope_vision_client import build_image_data_url, validate_data_url_size
+from app.ai.gateway.vision_client_factory import create_vision_review_client, get_vision_review_model
 
 logger = structlog.get_logger(__name__)
 
@@ -275,7 +271,7 @@ async def run_material_review(ctx: dict) -> dict:
                 items=[item for item in prefiltered if item.get("decision") != "reject"],
             )
             if vision_result:
-                model_used = normalize_dashscope_vision_model(settings.VISION_REVIEW_MODEL)
+                model_used = get_vision_review_model()
                 _apply_vision_result(reviewed_by_type, rejected, vision_result, semantic)
                 _VISION_CIRCUIT.record_success()
             else:
@@ -763,11 +759,18 @@ async def _run_vision_review(*, task_id: str, user_text: str, semantic: dict, it
         flush=True,
     )
     prompt = _vision_prompt(user_text=user_text, semantic=semantic, items=sheet_items)
-    client = DashScopeVisionReviewClient()
+    client = create_vision_review_client()
+    if client is None:
+        return {}
+    provider = settings.VISION_REVIEW_PROVIDER
     try:
         print(
+            f"VISION_REVIEW_PROVIDER task_id={task_id} provider={provider} model={client.model}",
+            flush=True,
+        )
+        print(
             "VISION_REVIEW_CLIENT_START "
-            f"task_id={task_id} provider=dashscope model={client.model} candidates={len(sheet_items)}",
+            f"task_id={task_id} provider={provider} model={client.model} candidates={len(sheet_items)}",
             flush=True,
         )
         response = await client.review_contact_sheet(
@@ -825,10 +828,12 @@ def _vision_unavailable_reason() -> str:
         return "disabled"
     if settings.VISION_REVIEW_PROVIDER == "rules":
         return "provider_rules"
-    if settings.VISION_REVIEW_PROVIDER != "dashscope":
-        return "unsupported_provider"
-    if not settings.DASHSCOPE_API_KEY:
+    if settings.VISION_REVIEW_PROVIDER == "dashscope" and not settings.DASHSCOPE_API_KEY:
         return "missing_api_key"
+    if settings.VISION_REVIEW_PROVIDER == "local_ollama" and not str(settings.LOCAL_VL_BASE_URL or "").strip():
+        return "missing_local_vl_base_url"
+    if settings.VISION_REVIEW_PROVIDER == "local_ollama" and not str(settings.LOCAL_VL_MODEL or "").strip():
+        return "missing_local_vl_model"
     return ""
 
 

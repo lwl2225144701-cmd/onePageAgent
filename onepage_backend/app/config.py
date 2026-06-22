@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_DIR.parent
 ENV_FILES = (BACKEND_DIR / ".env.example", PROJECT_ROOT / ".env", BACKEND_DIR / ".env")
-VISION_REVIEW_PROVIDERS = {"dashscope", "rules"}
+VISION_REVIEW_PROVIDERS = {"dashscope", "local_ollama", "rules"}
 
 
 class Settings(BaseSettings):
@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     VISION_REVIEW_CIRCUIT_BREAKER_ENABLED: bool
     VISION_REVIEW_CIRCUIT_BREAKER_THRESHOLD: int
     VISION_REVIEW_CIRCUIT_BREAKER_COOLDOWN_SECONDS: int
+    LOCAL_VL_BASE_URL: str = "http://127.0.0.1:11434"
+    LOCAL_VL_MODEL: str = "qwen2.5-vl:3b"
+    LOCAL_VL_TIMEOUT_SECONDS: int = 120
 
     # ── Weather ──
     AMAP_WEB_SERVICE_KEY: str
