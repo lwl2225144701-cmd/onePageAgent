@@ -173,91 +173,14 @@ def build_deterministic_fallback_plan(
     visual_brief: VisualBrief,
     whitelist: MaterialRetrievalWhitelist,
 ) -> MaterialRetrievalPlan:
-    categories = set(whitelist.categories)
-    sub_categories = set(whitelist.sub_categories)
-    styles = set(whitelist.styles)
-    raw_groups: list[dict[str, Any]] = []
-    scene_key = f"{visual_brief.scene} {visual_brief.sub_scene}".lower()
-    if visual_brief.content_length != "long":
-        if "food" in scene_key and "食物饮品" in categories:
-            raw_groups.append(
-                {
-                    "role": "focal_sticker",
-                    "categories": ["食物饮品"],
-                    "sub_categories": _existing(["主食料理", "饮料酒水", "甜品零食"], sub_categories),
-                    "query_terms": _fallback_query_terms(visual_brief, ["食物", "料理"]),
-                    "styles": _existing(["日系", "可爱"], styles),
-                }
-            )
-        elif any(token in scene_key for token in ("pet", "home")) and "动物生物" in categories:
-            raw_groups.append(
-                {
-                    "role": "focal_sticker",
-                    "categories": ["动物生物"],
-                    "sub_categories": _existing(["宠物"], sub_categories),
-                    "query_terms": _fallback_query_terms(visual_brief, ["宠物", "陪伴"]),
-                    "styles": _existing(["可爱", "日系"], styles),
-                }
-            )
-        elif any(token in scene_key for token in ("study", "reading")) and "学习办公" in categories:
-            raw_groups.append(
-                {
-                    "role": "focal_sticker",
-                    "categories": ["学习办公"],
-                    "sub_categories": _existing(["文具书籍", "考试学习"], sub_categories),
-                    "query_terms": _fallback_query_terms(visual_brief, ["学习", "书本", "笔记"]),
-                    "styles": _existing(["极简", "日系"], styles),
-                }
-            )
-        elif any(token in scene_key for token in ("outing", "travel")):
-            outing_categories = _existing(["人物角色", "交通建筑"], categories)
-            if outing_categories:
-                raw_groups.append(
-                    {
-                        "role": "focal_sticker",
-                        "categories": outing_categories,
-                        "sub_categories": _existing(["人物动作", "交通工具"], sub_categories),
-                        "query_terms": _fallback_query_terms(visual_brief, ["出游", "旅行", "户外"]),
-                        "styles": _existing(["日系", "可爱"], styles),
-                    }
-                )
-    background_categories = _existing(["通用背景", "场景背景", "自然风景"], categories)
-    if background_categories:
-        raw_groups.append(
-            {
-                "role": "background",
-                "categories": background_categories[:2],
-                "sub_categories": _existing(["通用"], sub_categories),
-                "query_terms": _fallback_query_terms(visual_brief, ["低饱和", "纸张", "留白"]),
-                "styles": _existing(["日系", "极简"], styles),
-            }
-        )
-    allowed_roles = set(whitelist.roles).intersection(ROLE_DEFAULTS)
-    raw_groups = [group for group in raw_groups if group.get("role") in allowed_roles]
-    if not raw_groups:
-        return MaterialRetrievalPlan(
-            scene=visual_brief.scene,
-            sub_scene=visual_brief.sub_scene,
-            strategy="minimal",
-            groups=[],
-            source="fallback",
-        )
-    plan = normalize_material_retrieval_plan(
-        {
-            "scene": visual_brief.scene,
-            "sub_scene": visual_brief.sub_scene,
-            "strategy": "minimal" if visual_brief.content_length == "long" else "progressive",
-            "groups": raw_groups,
-        },
-        visual_brief=visual_brief,
-        whitelist=whitelist,
+    del whitelist
+    return MaterialRetrievalPlan(
+        scene=visual_brief.scene,
+        sub_scene=visual_brief.sub_scene,
+        strategy="minimal",
+        groups=[],
+        source="fallback",
     )
-    plan.source = "fallback"
-    return plan
-
-
-def _fallback_query_terms(brief: VisualBrief, defaults: list[str]) -> list[str]:
-    return _dedupe([*brief.objects, *brief.required_concepts, *brief.visual_keywords, *defaults])[:8]
 
 
 def _allowlisted(value: Any, allowed: set[str]) -> list[str]:
@@ -268,10 +191,6 @@ def _allowlisted(value: Any, allowed: set[str]) -> list[str]:
 def _terms(value: Any) -> list[str]:
     values = value if isinstance(value, list) else []
     return _dedupe([str(item).strip()[:40] for item in values if str(item).strip()])
-
-
-def _existing(values: list[str], allowed: set[str]) -> list[str]:
-    return [value for value in values if value in allowed]
 
 
 def _dedupe(values: list[str]) -> list[str]:

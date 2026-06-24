@@ -13,7 +13,7 @@ from app.ai.layout_v2.material_retrieval_plan import (
     MaterialRetrievalWhitelist,
     normalize_material_retrieval_plan,
 )
-from app.ai.layout_v2.material_retrieval_prompt import (
+from app.ai.prompt_registry import (
     MATERIAL_RETRIEVAL_FEWSHOTS,
     MATERIAL_RETRIEVAL_SYSTEM_PROMPT,
     build_material_retrieval_prompt,
@@ -116,6 +116,24 @@ def test_fewshot_selector_uses_minimal_example_instead_of_unrelated_scene():
     assert [item["name"] for item in selected] == ["pet_home", "quiet_minimal"]
 
 
+def test_fewshot_selector_uses_ai_brief_not_raw_text_keyword_override():
+    selected = select_material_retrieval_fewshots(
+        visual_brief=VisualBrief(
+            scene="study",
+            sub_scene="study_record",
+            content_length="short",
+            objects=["笔记", "试卷"],
+            required_concepts=["study", "exam"],
+            visual_keywords=["学习", "复习"],
+        ),
+        user_text="文中顺带提到昨天吃过桂林米粉",
+        limit=2,
+    )
+
+    assert selected[0]["name"] == "study_notes"
+    assert selected[0]["name"] != "food_noodle"
+
+
 def test_prompt_is_compact_and_contains_only_selected_fewshots():
     prompt = build_material_retrieval_prompt(
         user_text="今天吃了桂林米粉",
@@ -180,16 +198,15 @@ def test_normalize_drops_unknown_values_and_adds_backend_defaults():
     assert "sql" not in plan.model_dump()
 
 
-def test_empty_model_groups_use_deterministic_food_fallback():
+def test_empty_model_groups_use_safe_minimal_fallback():
     plan = normalize_material_retrieval_plan({}, visual_brief=brief(), whitelist=whitelist())
 
     assert plan.source == "fallback"
-    assert [group.role for group in plan.groups] == ["focal_sticker", "background"]
-    assert plan.groups[0].categories == ["食物饮品"]
-    assert "food" in plan.groups[0].query_terms
+    assert plan.strategy == "minimal"
+    assert plan.groups == []
 
 
-def test_long_text_fallback_does_not_add_focal_sticker():
+def test_long_text_fallback_does_not_add_materials():
     plan = normalize_material_retrieval_plan(
         {},
         visual_brief=brief(scene="daily_life", sub_scene="long_text", length="long"),
@@ -197,29 +214,29 @@ def test_long_text_fallback_does_not_add_focal_sticker():
     )
 
     assert plan.strategy == "minimal"
-    assert all(group.role != "focal_sticker" for group in plan.groups)
+    assert plan.groups == []
 
 
-def test_pet_fallback_uses_animal_category():
+def test_fallback_does_not_guess_category_from_scene_name():
     plan = normalize_material_retrieval_plan(
         {},
         visual_brief=brief(scene="home", sub_scene="pet_companion", length="medium"),
         whitelist=whitelist(),
     )
 
-    assert plan.groups[0].categories == ["动物生物"]
-    assert plan.groups[0].sub_categories == ["宠物"]
+    assert plan.strategy == "minimal"
+    assert plan.groups == []
 
 
-def test_outing_fallback_uses_people_and_transport_categories():
+def test_outing_fallback_does_not_guess_people_or_transport_categories():
     plan = normalize_material_retrieval_plan(
         {},
         visual_brief=brief(scene="outing", sub_scene="weekend_leisure", length="short"),
         whitelist=whitelist(),
     )
 
-    assert plan.groups[0].categories == ["人物角色", "交通建筑"]
-    assert plan.groups[0].sub_categories == ["人物动作", "交通工具"]
+    assert plan.strategy == "minimal"
+    assert plan.groups == []
 
 
 def test_sql_compiler_uses_bound_params_and_never_embeds_user_terms():
@@ -383,7 +400,7 @@ async def test_planner_cache_hit_does_not_call_local_model(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_planner_model_failure_uses_deterministic_fallback(monkeypatch):
+async def test_planner_model_failure_uses_safe_minimal_fallback(monkeypatch):
     async def fake_cache(**_kwargs):
         return None
 
@@ -403,5 +420,5 @@ async def test_planner_model_failure_uses_deterministic_fallback(monkeypatch):
     )
 
     assert plan.source == "fallback"
-    assert plan.groups[0].role == "focal_sticker"
-    assert plan.groups[0].categories == ["食物饮品"]
+    assert plan.strategy == "minimal"
+    assert plan.groups == []

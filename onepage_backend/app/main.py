@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.ai.layout_v2 import ENGINE_VERSION
 from app.core.database import engine
 from app.core.error_handler import register_exception_handlers
 from app.core.logging import setup_logging
@@ -23,7 +24,7 @@ def _cors_origins() -> list[str]:
 async def lifespan(ap: FastAPI):
     setup_logging(settings.DEBUG)
     print(
-        f"ONEPAGE_BUILD_VERSION build_commit={settings.BUILD_COMMIT_SHA} layout_engine={settings.LAYOUT_ENGINE_VERSION}",
+        f"ONEPAGE_BUILD_VERSION build_commit={settings.BUILD_COMMIT_SHA} layout_engine={ENGINE_VERSION}",
         flush=True,
     )
     await get_redis()

@@ -3,10 +3,6 @@ from datetime import datetime as real_datetime
 import pytest
 
 from app.ai import mcp_client
-from app.ai.pipeline import step4_material
-from app.ai.pipeline.step1_content import build_semantic_result
-from app.ai.pipeline.step6_repair import apply_fact_field_normalization
-from app.config import settings
 
 
 def _journal_context(*, date="2026-06-13", weather="阴", icon="☁️", icon_key="overcast", weather_success=True):
@@ -182,86 +178,3 @@ async def test_invalid_location_auto_detects_before_weather_context(monkeypatch)
     assert context["location"]["location_source"] == "amap_auto_location"
     assert context["weather_status"] == "success"
     assert context["journal_header"]["weather_text"] == "阵雨"
-
-
-def test_step6_overrides_model_date_and_weather():
-    layout = {
-        "page": {"width": 1080, "height": 1920, "background": "#FAF6F0"},
-        "elements": [
-            {"type": "date_tag", "props": {"date": "2024-06-01", "x": 80, "y": 100}, "z_index": 40},
-            {"type": "weather_tag", "props": {"weather": "晴", "icon": "☀️", "x": 200, "y": 150}, "z_index": 40},
-        ],
-    }
-
-    normalized = apply_fact_field_normalization(
-        layout,
-        ctx={"task_id": "t-facts", "journal_context": _journal_context(weather="阴", icon="☁️", icon_key="overcast")},
-    )
-
-    date_tag = next(item for item in normalized["elements"] if item["type"] == "date_tag")
-    weather_tag = next(item for item in normalized["elements"] if item["type"] == "weather_tag")
-    assert date_tag["props"]["date"] == "2026-06-13"
-    assert date_tag["props"]["text"] == "2026-06-13"
-    assert weather_tag["props"]["weather"] == "阴"
-    assert weather_tag["props"]["text"] == "阴"
-    assert weather_tag["props"]["icon"] == "☁️"
-    assert weather_tag["props"]["icon_key"] == "overcast"
-
-
-def test_step6_preserves_cloudy_context_icon():
-    normalized = apply_fact_field_normalization(
-        {"page": {"width": 1080, "height": 1920}, "elements": []},
-        ctx={"task_id": "t-cloudy", "journal_context": _journal_context(weather="多云", icon="⛅", icon_key="cloudy_sunny")},
-    )
-
-    weather_tag = next(item for item in normalized["elements"] if item["type"] == "weather_tag")
-    assert weather_tag["props"]["weather"] == "多云"
-    assert weather_tag["props"]["icon"] == "⛅"
-    assert weather_tag["props"]["icon_key"] == "cloudy_sunny"
-
-
-def test_step6_weather_failure_removes_model_weather_and_keeps_date():
-    layout = {
-        "page": {"width": 1080, "height": 1920},
-        "elements": [
-            {"type": "date_tag", "props": {"date": "2024-06-01", "x": 80, "y": 100}, "z_index": 40},
-            {"type": "weather_tag", "props": {"weather": "晴", "icon": "☀️", "x": 200, "y": 150}, "z_index": 40},
-        ],
-    }
-
-    normalized = apply_fact_field_normalization(
-        layout,
-        ctx={"task_id": "t-no-weather", "journal_context": _journal_context(weather_success=False)},
-    )
-
-    assert any(item["type"] == "date_tag" and item["props"]["date"] == "2026-06-13" for item in normalized["elements"])
-    assert all(item["type"] != "weather_tag" for item in normalized["elements"])
-    assert "晴" not in str(normalized)
-
-
-@pytest.mark.asyncio
-async def test_step4_uses_journal_context_weather(monkeypatch):
-    monkeypatch.setattr(settings, "LAYOUT_ENGINE_VERSION", "v1")
-    captured = {}
-
-    async def fake_retrieve_candidates(**kwargs):
-        captured.update(kwargs)
-        return {"summary": {"weather": kwargs.get("weather"), "keywords": kwargs.get("keywords")}, "groups": []}
-
-    monkeypatch.setattr(step4_material, "retrieve_candidates", fake_retrieve_candidates)
-
-    result = await step4_material.run_material_matching(
-        {
-            "task_id": "t-step4-rain",
-            "user_id": "user-a",
-            "input_json": {"text": "今天在书店读书", "mood": "平静", "weather": {"weather": "晴"}},
-            "step1": build_semantic_result(text="今天在书店读书", text_analysis={}, mood="平静"),
-            "step2": {"primary_emotion": "平静", "keywords": []},
-            "step3": {"theme": "healing"},
-            "journal_context": _journal_context(weather="雨", icon="🌧️", icon_key="rain"),
-        }
-    )
-
-    assert captured["weather"] == "雨"
-    assert result["summary"]["weather"] == "雨"
-    assert "云朵" in captured["keywords"]

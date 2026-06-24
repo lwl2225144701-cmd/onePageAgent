@@ -6,6 +6,62 @@ from typing import Any
 from app.ai.layout_v2.schemas import VisualBrief
 
 
+UNIFIED_ANALYSIS_SYSTEM_PROMPT = """你是 onePage 手帐的内容分析器。
+一次完成语义、情绪和视觉风格分析，并只输出 JSON。
+场景与关键词必须来自用户真实内容，不得用情绪替代主体，不得虚构事件。
+keywords、objects、required_concepts 应保留食物名、地点、人物、动物、物件等可用于素材检索的具体名词。
+avoid_tags 用于排除与内容冲突的素材语义。
+天气只影响视觉风格，不改变内容主体。
+输出结构必须包含 semantic、sentiment、style 三个对象，不要输出解释。"""
+
+
+def build_unified_analysis_prompt(
+    *,
+    user_text: str,
+    mood: str,
+    environment_context: dict[str, Any] | None,
+    user_preferences: dict[str, Any] | None,
+) -> str:
+    payload = {
+        "user_text": str(user_text or "").strip(),
+        "user_mood": str(mood or "").strip(),
+        "environment_context": environment_context if isinstance(environment_context, dict) else {},
+        "user_preferences": user_preferences if isinstance(user_preferences, dict) else {},
+        "output_schema": {
+            "semantic": {
+                "topic": "简短主题",
+                "scene": "daily_life/home/pet/food/outing/travel/study/work/reading/exercise/emotion_record",
+                "sub_scene": "更具体的英文场景",
+                "intent": "用户记录意图",
+                "primary_subject": "主要主体",
+                "primary_action": "主要动作",
+                "environment": ["场景环境词"],
+                "objects": ["原文中的具体物体"],
+                "keywords": ["原文中的检索关键词"],
+                "visual_keywords": ["适合视觉检索的关键词"],
+                "required_concepts": ["必须命中的主体概念"],
+                "avoid_tags": ["必须排除的冲突语义"],
+                "title_hint": "不超过20个汉字的自然标题",
+            },
+            "sentiment": {
+                "primary_emotion": "happy/calm/excited/sad/anxious/nostalgic/neutral",
+                "secondary_emotion": "次要情绪或空字符串",
+                "confidence": 0.0,
+                "keywords": ["情绪关键词"],
+            },
+            "style": {
+                "theme": "healing/warm/vintage/minimal/cute/cool/elegant/calm",
+                "font": "handwriting/serif/sans-serif/brush",
+                "color_palette": ["#FAF6F0", "#C4A882", "#5C4A3A"],
+                "layout_style": "minimal/diary/collage",
+                "preferred_density": "low/medium",
+                "preferred_color_tone": ["warm", "soft"],
+            },
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
 MATERIAL_RETRIEVAL_PROMPT_VERSION = "v2-minimal-2"
 
 MATERIAL_RETRIEVAL_SYSTEM_PROMPT = """你是 onePage 手帐素材召回规划器。
@@ -217,7 +273,15 @@ def select_material_retrieval_fewshots(
     limit: int = 2,
 ) -> list[dict[str, Any]]:
     count = max(1, min(int(limit or 2), 3))
-    lowered = str(user_text or "").lower()
+    semantic_signals = " ".join(
+        [
+            visual_brief.scene,
+            visual_brief.sub_scene,
+            *visual_brief.objects,
+            *visual_brief.required_concepts,
+            *visual_brief.visual_keywords,
+        ]
+    ).lower()
     scored: list[tuple[float, int, dict[str, Any]]] = []
     for index, fewshot in enumerate(MATERIAL_RETRIEVAL_FEWSHOTS):
         score = 0.0
@@ -227,7 +291,7 @@ def select_material_retrieval_fewshots(
             score += 5.0
         if visual_brief.content_length in fewshot["content_lengths"]:
             score += 2.0
-        score += min(4.0, sum(1.0 for token in fewshot["keywords"] if token.lower() in lowered))
+        score += min(4.0, sum(1.0 for token in fewshot["keywords"] if token.lower() in semantic_signals))
         scored.append((score, -index, fewshot))
     scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
     selected = [item for item in scored if item[0] >= 5.0][:count]
@@ -311,3 +375,63 @@ def parse_material_retrieval_plan(raw: str) -> dict[str, Any]:
                     raise ValueError("material_retrieval_plan_not_object")
                 return payload
     raise ValueError("material_retrieval_plan_json_incomplete")
+
+
+LAYOUT_SELECTION_SYSTEM_PROMPT = """你是 onePage 手帐的方案选择助手。
+只能从后端提供的完整候选方案中选择一个 template_id，并给出简短自然的标题。
+不能输出正文、素材、角色、坐标、尺寸、透明度、optional_slots 或 z_index。
+只输出 JSON。"""
+
+
+def build_layout_selection_prompt(brief: VisualBrief, plans: list[Any]) -> str:
+    candidates = [
+        {
+            "template_id": plan.template_id,
+            "layout_type": plan.template_id.split("_")[0],
+            "score": plan.score,
+            "roles": sorted(plan.materials),
+        }
+        for plan in plans
+    ]
+    return json.dumps(
+        {
+            "instruction": "从候选完整方案中选择最适合当前记录的一项",
+            "visual_brief": brief.model_dump(mode="json"),
+            "candidates": candidates,
+            "output_schema": {"template_id": "候选 ID", "title": "不超过20个汉字的标题"},
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+IMAGE_DESCRIPTION_DEFAULT_PROMPT = "请描述图片中的主体、动作、场景、物体、颜色、可见文字和整体氛围。"
+
+
+def build_material_visual_metadata_prompt(prepared: list[dict[str, Any]]) -> str:
+    items = []
+    for item in prepared:
+        material = item["material"]
+        meta = dict(material.meta_info or {})
+        items.append(
+            {
+                "label": item["label"],
+                "filename": meta.get("filename") or meta.get("display_name") or "",
+                "material_type": str(material.material_type or ""),
+                "category": meta.get("category") or "",
+            }
+        )
+    return (
+        "分析这张手帐素材编号宫格，只输出 JSON，不要解释、Markdown 或代码块。每个编号必须且只能返回一条。\n"
+        "字段：label、subjects、actions、scenes、objects、detected_text、text_heavy、risk_flags、"
+        "suggested_role、background_safe、visual_style、color_tone、complexity、density。\n"
+        "complexity 和 density 只能是 low、medium、high。suggested_role 只能是 background、"
+        "focal_sticker、supporting_sticker、tape、frame、decoration、none。\n"
+        "risk_flags 只能使用 valentine、wedding、romance、festival_text、medical、sick、wheelchair、"
+        "elderly_care、religion、business_sales、party。识别可见中文、英文和日文；没有文字时 "
+        "detected_text 为空字符串。文件名只能帮助理解素材，不得当作图片可见文字，text_heavy 只能根据图片实际文字占比判断。\n"
+        f"素材编号：{json.dumps(items, ensure_ascii=False)}\n"
+        '输出格式：{"items":[{"label":"A01","subjects":[],"actions":[],"scenes":[],"objects":[],'
+        '"detected_text":"","text_heavy":false,"risk_flags":[],"suggested_role":"decoration",'
+        '"background_safe":false,"visual_style":"","color_tone":"","complexity":"low","density":"low"}]}'
+    )

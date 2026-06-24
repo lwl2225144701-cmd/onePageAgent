@@ -2,11 +2,8 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from app.ai.pipeline import step4_material
-from app.ai.pipeline.step4_material import annotate_layout_suggestions, run_material_matching, summarize_recall_candidates
 from app.models.material import Material
 from app.services.material_service import MaterialService
-from app.config import settings
 
 
 @pytest.mark.asyncio
@@ -276,104 +273,3 @@ async def test_retrieve_layout_candidates_prefers_safe_low_density_background(db
     grouped = {group["material_type"]: group["items"] for group in result["groups"]}
     assert f"/api/materials/{safe_background.id}/asset?anonymous_user_id=user-a" in grouped["background"][0]["file_url"]
     assert "quality:background_safe" in grouped["background"][0]["match_reasons"]
-
-
-def test_summarize_recall_candidates_reports_counts():
-    summary = summarize_recall_candidates(
-        {
-            "groups": [
-                {
-                    "material_type": "sticker",
-                    "items": [
-                        {
-                            "material_id": "a",
-                            "display_name": "A",
-                            "origin_path": "a.svg",
-                            "category": "开心",
-                            "aspect_ratio": 1.2,
-                            "score": 8,
-                            "match_reasons": ["emotion:开心"],
-                        }
-                    ],
-                },
-                {
-                    "material_type": "background",
-                    "items": [
-                        {
-                            "material_id": "b",
-                            "display_name": "B",
-                            "origin_path": "b.svg",
-                            "category": "纸张纹理",
-                            "aspect_ratio": 1.0,
-                            "score": 6,
-                            "match_reasons": ["scene:咖啡"],
-                        }
-                    ],
-                },
-            ]
-        }
-    )
-
-    assert summary["total_candidates"] == 2
-    assert summary["group_counts"] == {"sticker": 1, "background": 1}
-    assert summary["recalled_materials"]["sticker"][0]["display_name"] == "A"
-
-
-def test_annotate_layout_suggestions_sets_background_preference_and_roles():
-    candidates = {
-        "summary": {"emotion": "治愈", "scene": "咖啡"},
-        "groups": [
-            {"material_type": "background", "items": [{"material_id": "bg-1", "display_name": "paper", "file_url": "/bg.svg", "preview_url": "/bg-preview.svg", "category": "纸张纹理"}]},
-            {"material_type": "sticker", "items": [{"material_id": "st-1", "display_name": "coffee", "file_url": "/st.svg", "preview_url": "/st-preview.svg", "category": "人物场景"}]},
-            {"material_type": "decoration", "items": [{"material_id": "de-1", "display_name": "ribbon", "file_url": "/de.svg", "preview_url": "/de-preview.svg", "category": "丝带"}]},
-        ],
-    }
-
-    annotate_layout_suggestions(candidates, emotion="治愈", scene="咖啡", style="healing")
-
-    summary = candidates["summary"]["layout_guidance"]
-    assert summary["background_strategy"] == "material_background"
-    assert summary["preferred_background"]["material_id"] == "bg-1"
-    assert candidates["groups"][0]["items"][0]["suggested_role"] == "background"
-    assert candidates["groups"][1]["items"][0]["suggested_role"] == "focal_sticker"
-    assert candidates["groups"][2]["items"][0]["suggested_role"] == "decoration"
-
-
-@pytest.mark.asyncio
-async def test_run_material_matching_retries_after_candidate_failure(monkeypatch):
-    monkeypatch.setattr(settings, "LAYOUT_ENGINE_VERSION", "v1")
-    calls = {"retrieve": 0, "dispose": 0}
-
-    async def fake_retrieve_candidates(**_kwargs):
-        calls["retrieve"] += 1
-        if calls["retrieve"] == 1:
-            raise RuntimeError("connection closed")
-        return {
-            "summary": {},
-            "groups": [
-                {
-                    "material_type": "background",
-                    "items": [{"material_id": "bg-1", "display_name": "paper", "file_url": "/bg.svg", "preview_url": "/bg.svg", "category": "纸张纹理"}],
-                }
-            ],
-        }
-
-    async def fake_dispose_db_engine():
-        calls["dispose"] += 1
-
-    monkeypatch.setattr(step4_material, "retrieve_candidates", fake_retrieve_candidates)
-    monkeypatch.setattr(step4_material, "dispose_db_engine", fake_dispose_db_engine)
-
-    result = await run_material_matching(
-        {
-            "task_id": "task-1",
-            "user_id": "user-1",
-            "step1": {"text_analysis": {"scene": "阅读"}},
-            "step2": {"primary_emotion": "calm", "keywords": ["书"]},
-            "step3": {"theme": "healing"},
-            "input_json": {"text": "今天在书店读书", "mood": "平静", "weather": {"weather": "晴"}},
-        }
-    )
-
-    assert calls == {"retrieve": 2, "dispose": 1}
-    assert result["groups"][0]["items"][0]["suggested_role"] == "background"

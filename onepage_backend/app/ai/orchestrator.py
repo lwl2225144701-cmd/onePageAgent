@@ -3,8 +3,6 @@ import json
 import time
 import structlog
 
-from app.ai.fallback.templates import get_fallback_layout
-
 logger = structlog.get_logger(__name__)
 
 
@@ -28,50 +26,31 @@ class AIOrchestrator:
         try:
             await self._publish_progress(task_id, 0, "开始分析", "processing", 0)
 
-            # Step 1: Content Understanding
-            await self._publish_progress(task_id, 1, "内容理解", "processing", 5)
-            logger.info("orchestrator_step_start", task_id=task_id, step=1, step_name="内容理解")
-            self._print_step(task_id, 1, "内容理解", "START")
+            await self._publish_progress(task_id, 1, "内容、情绪与风格分析", "processing", 5)
+            logger.info("orchestrator_step_start", task_id=task_id, step=1, step_name="统一内容分析")
+            self._print_step(task_id, 1, "统一内容分析", "START")
             step_started = time.perf_counter()
             ctx["step1"] = await self._run_step1(ctx)
-            timings["semantic_ms"] = _elapsed_ms(step_started)
-            await self._publish_progress(task_id, 1, "内容理解", "completed", 16)
-            logger.info("orchestrator_step_done", task_id=task_id, step=1, step_name="内容理解")
-            self._print_step(task_id, 1, "内容理解", "DONE")
-
-            # Step 2: Sentiment Analysis
-            await self._publish_progress(task_id, 2, "情感分析", "processing", 20)
-            logger.info("orchestrator_step_start", task_id=task_id, step=2, step_name="情感分析")
-            self._print_step(task_id, 2, "情感分析", "START")
-            step_started = time.perf_counter()
-            ctx["step2"] = await self._run_step2(ctx)
-            timings["emotion_ms"] = _elapsed_ms(step_started)
+            analysis_ms = _elapsed_ms(step_started)
+            timings["semantic_ms"] = analysis_ms
+            timings["emotion_ms"] = 0
+            timings["style_ms"] = 0
+            ctx["step2"] = dict(ctx["step1"].get("sentiment") or {})
+            ctx["step3"] = dict(ctx["step1"].get("style") or {})
+            await self._publish_progress(task_id, 1, "内容理解", "completed", 24)
             await self._publish_progress(task_id, 2, "情感分析", "completed", 32)
-            logger.info("orchestrator_step_done", task_id=task_id, step=2, step_name="情感分析")
-            self._print_step(task_id, 2, "情感分析", "DONE")
-
-            # Step 3: Style Inference
-            await self._publish_progress(task_id, 3, "风格推断", "processing", 36)
-            logger.info("orchestrator_step_start", task_id=task_id, step=3, step_name="风格推断")
-            self._print_step(task_id, 3, "风格推断", "START")
-            step_started = time.perf_counter()
-            ctx["step3"] = await self._run_step3(ctx)
-            timings["style_ms"] = _elapsed_ms(step_started)
             await self._publish_progress(task_id, 3, "风格推断", "completed", 48)
-            logger.info("orchestrator_step_done", task_id=task_id, step=3, step_name="风格推断")
-            self._print_step(task_id, 3, "风格推断", "DONE")
+            logger.info("orchestrator_step_done", task_id=task_id, step=1, step_name="统一内容分析")
+            self._print_step(task_id, 1, "统一内容分析", "DONE")
 
-            from app.config import settings
+            from app.ai.layout_v2.visual_brief import build_visual_brief_from_context
 
-            if settings.LAYOUT_ENGINE_VERSION == "v2":
-                from app.ai.layout_v2.visual_brief import build_visual_brief_from_context
-
-                ctx["visual_brief"] = build_visual_brief_from_context(ctx).model_dump(mode="json")
-                print(
-                    "ONEPAGE_VISUAL_BRIEF "
-                    f"task_id={task_id} brief={json.dumps(ctx['visual_brief'], ensure_ascii=False)}",
-                    flush=True,
-                )
+            ctx["visual_brief"] = build_visual_brief_from_context(ctx).model_dump(mode="json")
+            print(
+                "ONEPAGE_VISUAL_BRIEF "
+                f"task_id={task_id} brief={json.dumps(ctx['visual_brief'], ensure_ascii=False)}",
+                flush=True,
+            )
 
             # Step 4: Material Matching
             await self._publish_progress(task_id, 4, "素材匹配", "processing", 52)
@@ -138,14 +117,9 @@ class AIOrchestrator:
 
         except Exception as e:
             logger.exception("orchestrator_run_error", task_id=task_id, error=str(e))
-            from app.config import settings
+            from app.ai.layout_v2.compiler import compile_emergency_minimal_v2
 
-            if settings.LAYOUT_ENGINE_VERSION == "v2":
-                from app.ai.layout_v2.compiler import compile_emergency_minimal_v2
-
-                fallback = compile_emergency_minimal_v2(task_id=task_id, input_json=input_json)
-            else:
-                fallback = get_fallback_layout("neutral")
+            fallback = compile_emergency_minimal_v2(task_id=task_id, input_json=input_json)
             await self._save_error(task_id, str(e))
             await self._publish_progress(task_id, 0, "出错", "failed", 0)
             return fallback
@@ -173,14 +147,6 @@ class AIOrchestrator:
     async def _run_step1(self, ctx):
         from app.ai.pipeline.step1_content import run_content_understanding
         return await run_content_understanding(ctx)
-
-    async def _run_step2(self, ctx):
-        from app.ai.pipeline.step2_sentiment import run_sentiment_analysis
-        return await run_sentiment_analysis(ctx)
-
-    async def _run_step3(self, ctx):
-        from app.ai.pipeline.step3_style import run_style_inference
-        return await run_style_inference(ctx)
 
     async def _run_step4(self, ctx):
         from app.ai.pipeline.step4_material import run_material_matching

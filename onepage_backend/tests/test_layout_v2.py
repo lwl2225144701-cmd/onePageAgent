@@ -22,7 +22,6 @@ from app.ai.pipeline import step5_layout
 from app.ai.pipeline.step4_material import run_material_matching
 from app.ai.pipeline.step4_material_review import run_material_review
 from app.ai.pipeline.step6_repair import run_validate_and_repair
-from app.config import settings
 from scripts.backfill_material_visual_metadata import (
     calculate_visual_bbox,
     normalize_visual_payload,
@@ -73,8 +72,47 @@ def authoritative_context():
     }
 
 
+def _test_brief(
+    text: str,
+    mood: str,
+    *,
+    scene: str = "daily_life",
+    sub_scene: str = "general_daily",
+    subject: str = "",
+    action: str = "",
+    environment: list[str] | None = None,
+    objects: list[str] | None = None,
+    concepts: list[str] | None = None,
+    title: str = "今天的一页",
+):
+    return build_visual_brief(
+        text=text,
+        mood=mood,
+        semantic={
+            "scene": scene,
+            "sub_scene": sub_scene,
+            "primary_subject": subject,
+            "primary_action": action,
+            "environment": environment or [],
+            "objects": objects or [],
+            "required_concepts": concepts or [],
+            "visual_keywords": concepts or [],
+            "title_hint": title,
+            "topic": title,
+        },
+    )
+
+
 def test_visual_brief_keeps_emotion_out_of_subject_recall():
-    brief = build_visual_brief(text="今天要出门去玩咯！！！你说应该去哪里玩呢", mood="兴奋")
+    brief = _test_brief(
+        "今天要出门去玩咯！！！你说应该去哪里玩呢",
+        "兴奋",
+        scene="outing",
+        sub_scene="weekend_leisure",
+        action="散步、旅行或探索",
+        environment=["park", "outdoor"],
+        concepts=["outing", "travel"],
+    )
 
     assert brief.scene == "outing"
     assert brief.primary_action == "散步、旅行或探索"
@@ -84,9 +122,17 @@ def test_visual_brief_keeps_emotion_out_of_subject_recall():
 
 
 def test_cat_visual_brief_is_schema_valid_and_specific():
-    brief = build_visual_brief(
-        text="今天猫猫一直趴在键盘上不让我工作，最后只好抱着它一起看电影。虽然很平凡，但感觉被治愈了。",
-        mood="开心",
+    brief = _test_brief(
+        "今天猫猫一直趴在键盘上不让我工作，最后只好抱着它一起看电影。虽然很平凡，但感觉被治愈了。",
+        "开心",
+        scene="home",
+        sub_scene="pet_companion",
+        subject="猫咪",
+        action="陪伴",
+        environment=["home"],
+        objects=["cat"],
+        concepts=["cat", "pet", "companion"],
+        title="被猫治愈的一天",
     )
 
     assert brief.scene == "home"
@@ -96,7 +142,14 @@ def test_cat_visual_brief_is_schema_valid_and_specific():
 
 
 def test_focal_candidate_requires_subject_action_or_required_concept():
-    brief = build_visual_brief(text="今天要出门去玩咯！！！你说应该去哪里玩呢", mood="兴奋")
+    brief = _test_brief(
+        "今天要出门去玩咯！！！你说应该去哪里玩呢",
+        "兴奋",
+        scene="outing",
+        sub_scene="weekend_leisure",
+        action="travel",
+        concepts=["outing", "travel"],
+    )
     unrelated = candidate(
         "flower",
         MaterialRole.FOCAL_STICKER,
@@ -113,7 +166,13 @@ def test_focal_candidate_requires_subject_action_or_required_concept():
 
 
 def test_excluded_concepts_and_text_heavy_are_hard_filtered():
-    brief = build_visual_brief(text="今天要出门去玩咯", mood="兴奋")
+    brief = _test_brief(
+        "今天要出门去玩咯",
+        "兴奋",
+        scene="outing",
+        sub_scene="weekend_leisure",
+        concepts=["outing", "travel"],
+    )
     risky = candidate(
         "valentine",
         MaterialRole.FOCAL_STICKER,
@@ -132,7 +191,7 @@ def test_excluded_concepts_and_text_heavy_are_hard_filtered():
 
 
 def test_role_groups_are_not_flattened_or_reassigned():
-    brief = build_visual_brief(text="今天和猫猫一起看电影", mood="开心")
+    brief = _test_brief("今天和猫猫一起看电影", "开心", scene="home", sub_scene="pet_companion", concepts=["cat"])
     tape = candidate("tape", MaterialRole.TAPE)
     frame = candidate("frame", MaterialRole.FRAME)
     reviewed = review_material_role_groups(
@@ -145,7 +204,7 @@ def test_role_groups_are_not_flattened_or_reassigned():
 
 
 def test_template_binder_requires_exact_roles_and_resolver_falls_back():
-    brief = build_visual_brief(text="今天和猫猫一起看电影", mood="开心")
+    brief = _test_brief("今天和猫猫一起看电影", "开心", scene="home", sub_scene="pet_companion", concepts=["cat"])
     focal = candidate("cat", MaterialRole.FOCAL_STICKER, subjects=["cat"], actions=["companion"], scenes=["home"])
     center_tape = get_template("watermark_center_tape")
     bound = bind_materials_for_template(
@@ -166,7 +225,7 @@ def test_template_binder_requires_exact_roles_and_resolver_falls_back():
 
 def test_compiler_is_deterministic_and_validator_is_read_only():
     text = "今天猫猫一直趴在键盘上不让我工作，最后抱着它一起看电影。"
-    brief = build_visual_brief(text=text, mood="开心")
+    brief = _test_brief(text, "开心", scene="home", sub_scene="pet_companion", concepts=["cat", "companion"])
     materials = {
         "background": candidate("home-bg", MaterialRole.BACKGROUND, scenes=["home"]),
         "focal_sticker": candidate("cat", MaterialRole.FOCAL_STICKER, subjects=["cat"], actions=["companion"], scenes=["home"]),
@@ -202,7 +261,7 @@ def test_compiler_is_deterministic_and_validator_is_read_only():
 
 def test_compiler_non_text_geometry_is_stable_across_ten_runs():
     text = "今天猫猫陪我看了一场电影。"
-    brief = build_visual_brief(text=text, mood="开心")
+    brief = _test_brief(text, "开心", scene="home", sub_scene="pet_companion", concepts=["cat", "companion"])
     plan = LayoutPlan(
         template_id="watermark_center_tape",
         materials={
@@ -256,7 +315,7 @@ def test_v1_sticker_role_compatibility_uses_usage_type_without_overriding_explic
 
 
 def test_long_content_filters_to_text_forward_templates():
-    brief = build_visual_brief(text="这是一段需要完整记录的长正文。" * 20, mood="平静")
+    brief = _test_brief("这是一段需要完整记录的长正文。" * 20, "平静")
     templates = filter_templates(brief)
 
     assert templates[0]["layout_type"] == "text_forward"
@@ -313,7 +372,7 @@ def test_backfill_parses_first_json_object_from_local_model_explanation():
 
 
 def test_compiler_layout_is_json_serializable():
-    brief = build_visual_brief(text="短短的一句话", mood="平静")
+    brief = _test_brief("短短的一句话", "平静")
     plan = LayoutPlan(template_id="minimal_text_only", materials={}, title="今天的一页", score=0.2)
     layout = compile_layout_v2(
         plan=plan,
@@ -329,15 +388,12 @@ def test_compiler_layout_is_json_serializable():
 
 @pytest.mark.asyncio
 async def test_step5_v2_model_failure_uses_highest_scored_legal_plan(monkeypatch):
-    monkeypatch.setattr(settings, "LAYOUT_ENGINE_VERSION", "v2")
-
     async def fail_model(*_args, **_kwargs):
         raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr(step5_layout, "_call_qwen_v2", fail_model)
-    monkeypatch.setattr(step5_layout, "_call_deepseek_v2", fail_model)
+    monkeypatch.setattr(step5_layout, "_call_layout_model", fail_model)
     text = "今天猫猫趴在键盘上，最后抱着它一起看电影。"
-    brief = build_visual_brief(text=text, mood="开心")
+    brief = _test_brief(text, "开心", scene="home", sub_scene="pet_companion", concepts=["cat", "companion"])
     background = candidate("home-bg", MaterialRole.BACKGROUND, scenes=["home"])
     focal = candidate("cat", MaterialRole.FOCAL_STICKER, subjects=["cat"], actions=["companion"], scenes=["home"])
     tape = candidate("tape", MaterialRole.TAPE)
@@ -375,9 +431,8 @@ async def test_step5_v2_model_failure_uses_highest_scored_legal_plan(monkeypatch
 
 @pytest.mark.asyncio
 async def test_step6_v2_uses_fallback_template_without_repairing_geometry(monkeypatch):
-    monkeypatch.setattr(settings, "LAYOUT_ENGINE_VERSION", "v2")
     text = "今天猫猫趴在键盘上。"
-    brief = build_visual_brief(text=text, mood="开心")
+    brief = _test_brief(text, "开心", scene="home", sub_scene="pet_companion", concepts=["cat", "companion"])
     background = candidate("home-bg", MaterialRole.BACKGROUND, scenes=["home"])
     focal = candidate("cat", MaterialRole.FOCAL_STICKER, subjects=["cat"], actions=["companion"], scenes=["home"])
     tape = candidate("tape", MaterialRole.TAPE)
@@ -436,9 +491,8 @@ async def test_step6_v2_uses_fallback_template_without_repairing_geometry(monkey
 
 @pytest.mark.asyncio
 async def test_v2_pipeline_preserves_role_groups_through_compile_and_validation(monkeypatch):
-    monkeypatch.setattr(settings, "LAYOUT_ENGINE_VERSION", "v2")
     text = "今天猫猫趴在键盘上，最后抱着它一起看电影。"
-    brief = build_visual_brief(text=text, mood="开心")
+    brief = _test_brief(text, "开心", scene="home", sub_scene="pet_companion", concepts=["cat", "companion"])
     materials = {
         "background": candidate("home-bg", MaterialRole.BACKGROUND, scenes=["home"]),
         "focal_sticker": candidate("cat", MaterialRole.FOCAL_STICKER, subjects=["cat"], actions=["companion"], scenes=["home"]),
@@ -455,8 +509,7 @@ async def test_v2_pipeline_preserves_role_groups_through_compile_and_validation(
         raise RuntimeError("model unavailable")
 
     monkeypatch.setattr("app.ai.layout_v2.material_retriever.retrieve_material_role_groups", retrieve)
-    monkeypatch.setattr(step5_layout, "_call_qwen_v2", fail_model)
-    monkeypatch.setattr(step5_layout, "_call_deepseek_v2", fail_model)
+    monkeypatch.setattr(step5_layout, "_call_layout_model", fail_model)
     ctx = {
         "task_id": "pipeline-v2",
         "user_id": None,

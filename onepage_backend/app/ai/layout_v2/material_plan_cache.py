@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.ai.layout_v2.material_retrieval_plan import MaterialRetrievalPlan, MaterialRetrievalWhitelist
-from app.ai.layout_v2.material_retrieval_prompt import MATERIAL_RETRIEVAL_PROMPT_VERSION
+from app.ai.prompt_registry import MATERIAL_RETRIEVAL_PROMPT_VERSION
 from app.ai.layout_v2.schemas import VisualBrief
 from app.config import settings
 from app.core.redis import get_redis

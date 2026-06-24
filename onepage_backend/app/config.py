@@ -28,7 +28,6 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int
     ALLOWED_IMAGE_TYPES: list[str]
     ALLOWED_AUDIO_TYPES: list[str]
-    LAYOUT_ENGINE_VERSION: str = "v2"
     BUILD_COMMIT_SHA: str = "development"
 
     # ── Database ──
@@ -57,25 +56,15 @@ class Settings(BaseSettings):
     DEEPSEEK_API_URL: str
     DEEPSEEK_API_KEY: str
     DEEPSEEK_MODEL: str
-    QWEN_API_URL: str
-    QWEN_API_KEY: str
     AI_REQUEST_TIMEOUT: int
     AI_MAX_RETRIES: int
     DASHSCOPE_API_KEY: str
     DASHSCOPE_BASE_URL: str
-    VISION_REVIEW_ENABLED: bool
     VISION_REVIEW_PROVIDER: str
     VISION_REVIEW_MODEL: str
     VISION_REVIEW_TIMEOUT_SECONDS: int
     VISION_REVIEW_MAX_RETRIES: int
-    VISION_REVIEW_MAX_CANDIDATES: int
-    VISION_REVIEW_MODE: str
-    VISION_REVIEW_FAIL_OPEN: bool
     VISION_REVIEW_MAX_DATA_URL_BYTES: int
-    VISION_REVIEW_CONTACT_SHEET_MIME: str
-    VISION_REVIEW_CIRCUIT_BREAKER_ENABLED: bool
-    VISION_REVIEW_CIRCUIT_BREAKER_THRESHOLD: int
-    VISION_REVIEW_CIRCUIT_BREAKER_COOLDOWN_SECONDS: int
     LOCAL_VL_BASE_URL: str = "http://127.0.0.1:11434"
     LOCAL_VL_MODEL: str = "qwen2.5-vl:3b"
     LOCAL_VL_TIMEOUT_SECONDS: int = 120
@@ -119,11 +108,5 @@ class Settings(BaseSettings):
         if provider not in VISION_REVIEW_PROVIDERS:
             return "rules"
         return provider
-
-    @field_validator("LAYOUT_ENGINE_VERSION")
-    @classmethod
-    def validate_layout_engine_version(cls, value: str) -> str:
-        return "v2" if str(value or "").strip().lower() == "v2" else "v1"
-
 
 settings = Settings()

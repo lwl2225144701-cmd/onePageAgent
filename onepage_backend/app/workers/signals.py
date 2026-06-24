@@ -2,6 +2,7 @@ import structlog
 from celery.signals import task_prerun, task_postrun, task_failure, worker_process_init, worker_shutdown
 
 from app.config import settings
+from app.ai.layout_v2 import ENGINE_VERSION
 from app.core.logging import setup_logging
 
 logger = structlog.get_logger(__name__)
@@ -25,9 +26,9 @@ def on_task_failure(sender, task_id, exception, traceback, **extra):
 @worker_process_init.connect
 def on_worker_process_init(**_extra):
     setup_logging(settings.DEBUG)
-    logger.info("worker_process_init", build_commit=settings.BUILD_COMMIT_SHA, layout_engine=settings.LAYOUT_ENGINE_VERSION)
+    logger.info("worker_process_init", build_commit=settings.BUILD_COMMIT_SHA, layout_engine=ENGINE_VERSION)
     print(
-        f"ONEPAGE_WORKER_BUILD_VERSION build_commit={settings.BUILD_COMMIT_SHA} layout_engine={settings.LAYOUT_ENGINE_VERSION}",
+        f"ONEPAGE_WORKER_BUILD_VERSION build_commit={settings.BUILD_COMMIT_SHA} layout_engine={ENGINE_VERSION}",
         flush=True,
     )
     try:

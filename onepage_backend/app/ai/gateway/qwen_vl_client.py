@@ -1,4 +1,5 @@
 from app.ai.gateway.base import BaseModelClient
+from app.ai.prompt_registry import IMAGE_DESCRIPTION_DEFAULT_PROMPT
 from app.config import settings
 
 
@@ -12,7 +13,7 @@ class QwenVLClient(BaseModelClient):
     async def call(self, image_url: str, prompt: str | None = None) -> dict:
         if not self.api_url or not self.api_key:
             return {"description": "", "objects": [], "scene": "", "colors": [], "text_in_image": "", "mood": ""}
-        default_prompt = "请详细描述这张图片的内容，包括：场景、物体、颜色、文字、氛围。"
+        default_prompt = IMAGE_DESCRIPTION_DEFAULT_PROMPT
         return await self._request("POST", "/services/aigc/multimodal-generation/generation", {
             "model": "qwen-vl-plus",
             "input": {

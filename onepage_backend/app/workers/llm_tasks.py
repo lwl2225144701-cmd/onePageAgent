@@ -28,17 +28,8 @@ def run_ai_orchestration(self, task_id: str, user_id: str, input_json: dict) -> 
         if self.request.retries < self.max_retries:
             logger.warning("celery_orchestration_retrying", task_id=task_id, celery_task_id=self.request.id)
             raise self.retry(exc=exc)
-        # Return fallback layout on failure
-        from app.ai.fallback.templates import get_fallback_layout
-        from app.config import settings
+        from app.ai.layout_v2.compiler import compile_emergency_minimal_v2
+
         logger.warning("celery_orchestration_fallback_returned", task_id=task_id, celery_task_id=self.request.id)
         print(f"CELERY_TASK_FALLBACK task_id={task_id} celery_task_id={self.request.id}", flush=True)
-        if settings.LAYOUT_ENGINE_VERSION == "v2":
-            from app.ai.layout_v2.compiler import compile_emergency_minimal_v2
-
-            return compile_emergency_minimal_v2(task_id=task_id, input_json=input_json)
-        return get_fallback_layout(
-            "neutral",
-            content_text=input_json.get("text", "") or input_json.get("content_text", ""),
-            page_date=input_json.get("page_date", ""),
-        )
+        return compile_emergency_minimal_v2(task_id=task_id, input_json=input_json)

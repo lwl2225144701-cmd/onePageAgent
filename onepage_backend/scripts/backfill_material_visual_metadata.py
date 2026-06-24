@@ -17,6 +17,7 @@ from sqlalchemy import select
 from app.ai.gateway.dashscope_vision_client import build_image_data_url
 from app.ai.gateway.vision_client_factory import create_vision_review_client
 from app.ai.layout_v2.schemas import MaterialVisualMetadata, VisualBBox
+from app.ai.prompt_registry import build_material_visual_metadata_prompt
 from app.config import settings
 from app.core.database import async_session_factory
 from app.models.material import Material
@@ -156,7 +157,7 @@ async def review_material_batch(
     try:
         sheet_bytes = build_contact_sheet(prepared)
         response = await client.review_contact_sheet(
-            prompt=build_prompt(prepared),
+            prompt=build_material_visual_metadata_prompt(prepared),
             contact_sheet_data_url=build_image_data_url(sheet_bytes, "image/jpeg"),
             task_id=f"backfill:{offset + 1}-{offset + len(batch)}",
         )
@@ -270,30 +271,6 @@ def is_decodable_image(image_bytes: bytes) -> bool:
         return True
     except Exception:
         return False
-
-
-def build_prompt(prepared: list[dict[str, Any]]) -> str:
-    items = []
-    for item in prepared:
-        material = item["material"]
-        meta = dict(material.meta_info or {})
-        items.append(
-            {
-                "label": item["label"],
-                "filename": meta.get("filename") or meta.get("display_name") or "",
-                "material_type": str(material.material_type or ""),
-                "category": meta.get("category") or "",
-            }
-        )
-    return (
-        "分析这张手帐素材编号宫格，只输出 JSON，不要解释，不要 Markdown，不要代码块。每个编号必须且只能返回一条。\n"
-        "字段：label、subjects、actions、scenes、objects、detected_text、text_heavy、risk_flags、suggested_role、background_safe、visual_style、color_tone、complexity、density。\n"
-        "complexity 和 density 只能是 low、medium、high。suggested_role 只能是 background、focal_sticker、supporting_sticker、tape、frame、decoration、none。\n"
-        "risk_flags 只能使用 valentine、wedding、romance、festival_text、medical、sick、wheelchair、elderly_care、religion、business_sales、party。\n"
-        "识别可见中文、英文和日文；没有文字时 detected_text 为空字符串。\n"
-        f"素材编号：{json.dumps(items, ensure_ascii=False)}\n"
-        "输出格式：{\"items\":[{\"label\":\"A01\",\"subjects\":[],\"actions\":[],\"scenes\":[],\"objects\":[],\"detected_text\":\"\",\"text_heavy\":false,\"risk_flags\":[],\"suggested_role\":\"decoration\",\"background_safe\":false,\"visual_style\":\"\",\"color_tone\":\"\",\"complexity\":\"low\",\"density\":\"low\"}]}"
-    )
 
 
 def calculate_visual_bbox(image_bytes: bytes, *, mime_type: str = "") -> VisualBBox:

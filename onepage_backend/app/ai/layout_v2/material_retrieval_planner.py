@@ -19,7 +19,7 @@ from app.ai.layout_v2.material_retrieval_plan import (
     build_deterministic_fallback_plan,
     normalize_material_retrieval_plan,
 )
-from app.ai.layout_v2.material_retrieval_prompt import (
+from app.ai.prompt_registry import (
     MATERIAL_RETRIEVAL_SYSTEM_PROMPT,
     build_material_retrieval_prompt,
     parse_material_retrieval_plan,
