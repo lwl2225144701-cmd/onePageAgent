@@ -4,7 +4,10 @@ import math
 import re
 from typing import Any
 
+from sqlalchemy import select
+
 from app.ai.layout_v2.enums import MATERIAL_ROLES, MaterialRole
+from app.ai.layout_v2.material_retrieval_plan import MaterialRetrievalGroup
 from app.ai.layout_v2.schemas import MaterialCandidate, MaterialVisualMetadata, VisualBBox, VisualBrief
 
 
@@ -37,34 +40,66 @@ async def retrieve_material_role_groups(
     brief: VisualBrief,
     required_roles: set[str],
     user_id: str | None,
+    user_text: str = "",
+    mood: str = "",
+    weather: str = "",
+    task_id: str | None = None,
     limit_per_role: int = 5,
 ) -> dict[str, Any]:
     from app.core.database import async_session_factory
+    from app.models.material import Material
+    from app.ai.layout_v2.material_retrieval_planner import (
+        create_material_retrieval_plan,
+        load_material_retrieval_whitelist,
+    )
+    from app.ai.layout_v2.material_sql_compiler import compile_material_plan_to_sql
     from app.services.material_service import MaterialService
 
     role_groups: dict[str, list[dict[str, Any]]] = {role: [] for role in required_roles if role in MATERIAL_ROLES}
     rejected: list[dict[str, Any]] = []
     async with async_session_factory() as db:
         service = MaterialService(db)
-        materials = await service.load_visible_layout_materials(user_id=user_id)
-        for material in materials:
-            candidate_base, reason = _candidate_from_material(material, service=service, user_id=user_id)
-            if candidate_base is None:
-                rejected.append({"material_id": str(material.id), "reason": reason})
-                continue
-            role = candidate_base["role"]
+        whitelist = await load_material_retrieval_whitelist(db)
+        plan = await create_material_retrieval_plan(
+            visual_brief=brief,
+            user_text=user_text,
+            mood=mood,
+            weather=weather,
+            whitelist=whitelist,
+            task_id=task_id,
+        )
+        for group in plan.groups:
+            role = group.role
             if role not in role_groups:
                 continue
-            candidate, reason = score_candidate(candidate_base, brief=brief, role=MaterialRole(role))
-            if candidate is None:
-                rejected.append({"material_id": str(material.id), "role": role, "reason": reason})
-                continue
-            role_groups[role].append(candidate.model_dump(mode="json"))
+            statement, params = compile_material_plan_to_sql(group, user_id)
+            materials = list((await db.execute(select(Material).from_statement(statement), params)).scalars())
+            materials = await service._attach_user_state(materials, user_id)
+            print(
+                "ONEPAGE_MATERIAL_SQL_RETRIEVED "
+                f"task_id={task_id} role={role} rows={len(materials)} limit={group.limit}",
+                flush=True,
+            )
+            for material in materials:
+                candidate_base, reason = _candidate_from_material(material, service=service, user_id=user_id)
+                if candidate_base is None:
+                    rejected.append({"material_id": str(material.id), "role": role, "reason": reason})
+                    continue
+                candidate, reason = score_candidate(
+                    candidate_base,
+                    brief=brief,
+                    role=MaterialRole(role),
+                    retrieval_group=group,
+                )
+                if candidate is None:
+                    rejected.append({"material_id": str(material.id), "role": role, "reason": reason})
+                    continue
+                role_groups[role].append(candidate.model_dump(mode="json"))
 
     for role, items in role_groups.items():
         items.sort(key=lambda item: (float(item["total_score"]), _preference_score(item)), reverse=True)
         role_groups[role] = items[:limit_per_role]
-    return {"role_groups": role_groups, "rejected": rejected}
+    return {"role_groups": role_groups, "rejected": rejected, "retrieval_plan": plan.model_dump(mode="json")}
 
 
 def score_candidate(
@@ -72,6 +107,7 @@ def score_candidate(
     *,
     brief: VisualBrief,
     role: MaterialRole,
+    retrieval_group: MaterialRetrievalGroup | None = None,
 ) -> tuple[MaterialCandidate | None, str]:
     metadata = MaterialVisualMetadata.model_validate(candidate_data["metadata"])
     conflicts = set(metadata.risk_flags).intersection(brief.excluded_concepts)
@@ -98,24 +134,38 @@ def score_candidate(
         brief.preferred_color_tone,
         [metadata.visual_style, metadata.color_tone],
     )
+    plan_score, plan_hits = _retrieval_plan_match(candidate_data, metadata, retrieval_group)
+    plan_has_specific_match = any(
+        hit.startswith(("query:", "style:", "sub_category:")) and hit not in {"sub_category:通用", "sub_category:其他"}
+        for hit in plan_hits
+    )
 
     if role in {MaterialRole.FOCAL_STICKER, MaterialRole.SUPPORTING_STICKER} and not (
-        subject_hits or action_hits or _required_concept_hit(brief, metadata)
+        subject_hits or action_hits or _required_concept_hit(brief, metadata) or plan_score > 0
     ):
         return None, "missing_subject_action_or_required_concept"
-    if role is MaterialRole.BACKGROUND and not scene_hits:
+    if role is MaterialRole.SUPPORTING_STICKER and retrieval_group is not None and not plan_has_specific_match:
+        return None, "weak_retrieval_plan_match"
+    if role is MaterialRole.BACKGROUND and not scene_hits and not plan_has_specific_match:
         return None, "missing_environment_or_scene_match"
 
     if role in {MaterialRole.TAPE, MaterialRole.FRAME, MaterialRole.DECORATION}:
         semantic_score = 0.45 * role_score + 0.35 * style_score + 0.20 * _low_density_score(metadata)
     else:
-        semantic_score = (
+        legacy_score = (
             0.35 * subject_score
             + 0.20 * action_score
             + 0.20 * scene_score
             + 0.15 * role_score
             + 0.10 * style_score
         )
+        plan_driven_score = (
+            0.55 * plan_score
+            + 0.25 * role_score
+            + 0.10 * style_score
+            + 0.10 * _low_density_score(metadata)
+        )
+        semantic_score = max(legacy_score, plan_driven_score)
     if semantic_score < ROLE_THRESHOLDS[role]:
         return None, f"score_below_threshold:{semantic_score:.3f}"
 
@@ -124,6 +174,7 @@ def score_candidate(
         *(f"action:{item}" for item in action_hits),
         *(f"scene:{item}" for item in scene_hits),
         *(f"style:{item}" for item in style_hits),
+        *(f"plan:{item}" for item in plan_hits),
         f"role:{role.value}",
     ]
     candidate = MaterialCandidate.model_validate(
@@ -196,12 +247,52 @@ def _candidate_from_material(material: Any, *, service: Any, user_id: str | None
         "mime_type": str(meta.get("mime_type") or ""),
         "metadata": metadata.model_dump(mode="json"),
         "category": str(meta.get("category") or ""),
+        "sub_category": str(meta.get("sub_category") or ""),
         "display_name": str(meta.get("display_name") or meta.get("filename") or ""),
         "asset_width": width,
         "asset_height": height,
         "is_favorite": bool(getattr(state, "is_favorite", False)),
         "is_recent": bool(getattr(state, "last_used_at", None)),
     }, ""
+
+
+def _retrieval_plan_match(
+    candidate_data: dict[str, Any],
+    metadata: MaterialVisualMetadata,
+    group: MaterialRetrievalGroup | None,
+) -> tuple[float, list[str]]:
+    if group is None:
+        return 0.0, []
+    category = str(candidate_data.get("category") or "").strip()
+    sub_category = str(candidate_data.get("sub_category") or "").strip()
+    category_hit = category in group.categories
+    sub_category_hit = sub_category in group.sub_categories
+    _, query_hits = _match_score(
+        group.query_terms,
+        [
+            str(candidate_data.get("display_name") or ""),
+            category,
+            sub_category,
+            *metadata.subjects,
+            *metadata.actions,
+            *metadata.scenes,
+            *metadata.objects,
+        ],
+    )
+    _, style_hits = _match_score(group.styles, [metadata.visual_style, metadata.color_tone])
+    score = (
+        0.35 * float(category_hit)
+        + 0.30 * float(sub_category_hit)
+        + 0.25 * min(1.0, len(query_hits) / 2)
+        + 0.10 * min(1.0, len(style_hits))
+    )
+    reasons = [
+        *([f"category:{category}"] if category_hit else []),
+        *([f"sub_category:{sub_category}"] if sub_category_hit else []),
+        *(f"query:{item}" for item in query_hits),
+        *(f"style:{item}" for item in style_hits),
+    ]
+    return min(1.0, score), reasons
 
 
 def _material_role(material: Any, meta: dict[str, Any]) -> MaterialRole:

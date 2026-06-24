@@ -138,10 +138,17 @@ async def _run_material_matching_v2(ctx: dict) -> dict:
     brief = VisualBrief.model_validate(ctx.get("visual_brief") or build_visual_brief_from_context(ctx))
     templates = filter_templates(brief)
     required_roles = required_roles_for_templates(templates)
+    input_json = ctx.get("input_json") if isinstance(ctx.get("input_json"), dict) else {}
+    journal_context = ctx.get("journal_context") if isinstance(ctx.get("journal_context"), dict) else {}
+    weather_context = journal_context.get("weather") if isinstance(journal_context.get("weather"), dict) else {}
     retrieved = await retrieve_material_role_groups(
         brief=brief,
         required_roles=required_roles,
         user_id=ctx.get("user_id"),
+        user_text=str(input_json.get("text") or input_json.get("content_text") or ""),
+        mood=str(input_json.get("mood") or ""),
+        weather=str(weather_context.get("text") or weather_context.get("weather") or "unknown"),
+        task_id=ctx.get("task_id"),
     )
     role_groups = retrieved["role_groups"]
     template_summaries = [public_template_summary(template) for template in templates]
@@ -167,6 +174,7 @@ async def _run_material_matching_v2(ctx: dict) -> dict:
             "visual_brief": brief.model_dump(mode="json"),
             "template_candidates": template_summaries,
             "required_roles": sorted(required_roles),
+            "retrieval_plan": retrieved.get("retrieval_plan", {}),
         },
         "role_groups": role_groups,
         "rejected_materials": retrieved["rejected"],

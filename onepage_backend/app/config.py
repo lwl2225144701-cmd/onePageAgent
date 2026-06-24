@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     LOCAL_VL_BASE_URL: str = "http://127.0.0.1:11434"
     LOCAL_VL_MODEL: str = "qwen2.5-vl:3b"
     LOCAL_VL_TIMEOUT_SECONDS: int = 120
+    LOCAL_TEXT_LLM_BASE_URL: str = "http://127.0.0.1:11434"
+    LOCAL_TEXT_LLM_MODEL: str = "qwen2.5:7b"
+    LOCAL_TEXT_LLM_TIMEOUT_SECONDS: int = 60
+    MATERIAL_PLAN_CACHE_TTL_SECONDS: int = 1800
+    MATERIAL_PLAN_MAX_FEWSHOTS: int = 3
 
     # ── Weather ──
     AMAP_WEB_SERVICE_KEY: str
