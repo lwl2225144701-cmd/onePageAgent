@@ -14,6 +14,22 @@ avoid_tags 用于排除与内容冲突的素材语义。
 天气只影响视觉风格，不改变内容主体。
 输出结构必须包含 semantic、sentiment、style 三个对象，不要输出解释。"""
 
+MATERIAL_RETRIEVAL_PROMPT_VERSION = "v2-minimal-2"
+
+MATERIAL_RETRIEVAL_SYSTEM_PROMPT = """你是 onePage 手帐素材召回规划器。
+根据用户内容、心情、天气和 VisualBrief，输出最小素材召回计划。
+role、category、sub_category、style 只能从输入白名单选择。
+不能输出 SQL、素材 ID、URL、坐标、默认参数或解释。
+精确物品只放入 query_terms 用于排序，不作为唯一召回条件；找不到时退让到大类。
+情绪只影响风格，不决定主体素材。长正文减少主贴纸；不可靠时使用 minimal。
+最多输出 3 个 group。只输出紧凑 JSON。"""
+
+
+LAYOUT_SELECTION_SYSTEM_PROMPT = """你是 onePage 手帐的方案选择助手。
+只能从后端提供的完整候选方案中选择一个 template_id，并给出简短自然的标题。
+不能输出正文、素材、角色、坐标、尺寸、透明度、optional_slots 或 z_index。
+只输出 JSON。"""
+
 
 def build_unified_analysis_prompt(
     *,
@@ -62,15 +78,7 @@ def build_unified_analysis_prompt(
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
-MATERIAL_RETRIEVAL_PROMPT_VERSION = "v2-minimal-2"
 
-MATERIAL_RETRIEVAL_SYSTEM_PROMPT = """你是 onePage 手帐素材召回规划器。
-根据用户内容、心情、天气和 VisualBrief，输出最小素材召回计划。
-role、category、sub_category、style 只能从输入白名单选择。
-不能输出 SQL、素材 ID、URL、坐标、默认参数或解释。
-精确物品只放入 query_terms 用于排序，不作为唯一召回条件；找不到时退让到大类。
-情绪只影响风格，不决定主体素材。长正文减少主贴纸；不可靠时使用 minimal。
-最多输出 3 个 group。只输出紧凑 JSON。"""
 
 
 MATERIAL_RETRIEVAL_FEWSHOTS: list[dict[str, Any]] = [
@@ -377,10 +385,6 @@ def parse_material_retrieval_plan(raw: str) -> dict[str, Any]:
     raise ValueError("material_retrieval_plan_json_incomplete")
 
 
-LAYOUT_SELECTION_SYSTEM_PROMPT = """你是 onePage 手帐的方案选择助手。
-只能从后端提供的完整候选方案中选择一个 template_id，并给出简短自然的标题。
-不能输出正文、素材、角色、坐标、尺寸、透明度、optional_slots 或 z_index。
-只输出 JSON。"""
 
 
 def build_layout_selection_prompt(brief: VisualBrief, plans: list[Any]) -> str:

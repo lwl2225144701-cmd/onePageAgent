@@ -105,6 +105,34 @@ make logs
 http://127.0.0.1:8000
 ```
 
+#### 使用本地虚拟环境启动
+
+如果不通过 Docker Compose 启动后端，需要分别打开三个终端，并在每个终端中进入后端目录、激活虚拟环境。
+
+终端 1：启动 FastAPI：
+
+```bash
+cd onepage_backend
+source .venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+终端 2：启动 AI 生成 Worker：
+
+```bash
+cd onepage_backend
+source .venv/bin/activate
+celery -A app.workers.celery_app worker -Q llm_queue --concurrency=1 --loglevel=info
+```
+
+终端 3：启动导出 Worker：
+
+```bash
+cd onepage_backend
+source .venv/bin/activate
+celery -A app.workers.celery_app worker -Q export_queue --concurrency=1 --loglevel=info
+```
+
 AI 视觉审稿默认使用阿里云百炼 OpenAI 兼容接口；未配置 Key 时会自动退回规则审稿，不会阻断生成链路。
 
 ```env
