@@ -8,13 +8,15 @@ from app.ai.gateway.deepseek_client import DeepSeekClient
 from app.ai.layout_v2.catalog import get_template
 from app.ai.layout_v2.compiler import compile_layout_v2
 from app.ai.layout_v2.resolver import plan_log_summary, resolve_layout_plans
-from app.ai.layout_v2.schemas import VisualBrief
+from app.ai.layout_v2.schemas import LayoutPlan, MaterialCandidate, VisualBrief
 from app.ai.layout_v2.visual_brief import build_visual_brief_from_context
 from app.ai.pipeline.llm_json import extract_message_content
 from app.ai.prompt_registry import LAYOUT_SELECTION_SYSTEM_PROMPT, build_layout_selection_prompt
 
 
 logger = structlog.get_logger(__name__)
+
+BACKGROUND_UPGRADE_MAX_SCORE_DELTA = 0.12
 
 
 async def run_layout_generation(ctx: dict) -> str:
@@ -56,6 +58,17 @@ async def run_layout_generation(ctx: dict) -> str:
             model_name = "deepseek"
     except Exception as exc:
         logger.warning("step5_layout_selection_failed", task_id=task_id, error=str(exc))
+
+    upgraded = _prefer_contextual_background(selected, plans, brief)
+    if upgraded.template_id != selected.template_id:
+        print(
+            "ONEPAGE_LAYOUT_BACKGROUND_UPGRADE "
+            f"task_id={task_id} from_template={selected.template_id} to_template={upgraded.template_id} "
+            f"score_delta={round(selected.score - upgraded.score, 4)}",
+            flush=True,
+        )
+        selected = upgraded
+        model_name = f"{model_name}+background_guard"
 
     authoritative_context = build_authoritative_context(
         ctx.get("journal_context") if isinstance(ctx.get("journal_context"), dict) else {}
@@ -122,6 +135,46 @@ def _parse_plan_decision(raw: str | None, plans: list, title_hint: str) -> dict 
         return None
     title = str(payload.get("title") or title_hint or "今天的一页").strip()[:40] or "今天的一页"
     return {"template_id": template_id, "title": title}
+
+
+def _prefer_contextual_background(
+    selected: LayoutPlan,
+    plans: list[LayoutPlan],
+    brief: VisualBrief,
+) -> LayoutPlan:
+    if "background" in selected.materials or brief.content_length not in {"short", "medium"}:
+        return selected
+
+    selected_focal = selected.materials.get("focal_sticker")
+    alternatives = []
+    for plan in plans:
+        background = plan.materials.get("background")
+        if background is None or not _is_contextual_background(background):
+            continue
+        plan_focal = plan.materials.get("focal_sticker")
+        if selected_focal is not None and (
+            plan_focal is None or plan_focal.material_id != selected_focal.material_id
+        ):
+            continue
+        if selected.score - plan.score > BACKGROUND_UPGRADE_MAX_SCORE_DELTA:
+            continue
+        alternatives.append(plan)
+    best = max(alternatives, key=lambda item: item.score, default=selected)
+    if best is selected:
+        return selected
+    return best.model_copy(update={"title": selected.title})
+
+
+def _is_contextual_background(candidate: MaterialCandidate) -> bool:
+    metadata = candidate.metadata
+    if not metadata.background_safe or metadata.density != "low" or metadata.complexity != "low":
+        return False
+    contextual_reasons = (
+        "scene:",
+        "plan:query:",
+        "plan:sub_category:",
+    )
+    return any(str(reason).startswith(contextual_reasons) for reason in candidate.match_reasons)
 
 
 def build_authoritative_context(journal_context: dict) -> dict:

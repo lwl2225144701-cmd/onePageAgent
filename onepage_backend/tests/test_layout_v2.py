@@ -223,6 +223,83 @@ def test_template_binder_requires_exact_roles_and_resolver_falls_back():
     assert plans[0].template_id == "short_note_focal_center"
 
 
+def test_step5_prefers_close_contextual_background_plan_with_same_focal():
+    brief = _test_brief(
+        "早上赶地铁，终于坐下来喝了一杯热豆浆。",
+        "放松",
+        scene="daily_life",
+        sub_scene="commuting",
+        environment=["地铁站", "站台"],
+        concepts=["地铁", "豆浆"],
+    )
+    focal = candidate("commute-car", MaterialRole.FOCAL_STICKER, subjects=["汽车"], scenes=["通勤"])
+    background = candidate(
+        "subway-bg",
+        MaterialRole.BACKGROUND,
+        scenes=["地铁", "车厢内"],
+    ).model_copy(
+        update={
+            "semantic_score": 0.58,
+            "total_score": 0.58,
+            "match_reasons": ["scene:地铁", "plan:query:地铁"],
+        }
+    )
+    selected = LayoutPlan(
+        template_id="short_note_focal_center",
+        materials={"focal_sticker": focal},
+        title="一杯热豆浆的治愈",
+        score=0.858,
+    )
+    background_plan = LayoutPlan(
+        template_id="watermark_center_clean",
+        materials={"background": background, "focal_sticker": focal},
+        title=selected.title,
+        score=0.7486,
+    )
+
+    upgraded = step5_layout._prefer_contextual_background(selected, [selected, background_plan], brief)
+
+    assert upgraded.template_id == "watermark_center_clean"
+    assert upgraded.title == selected.title
+
+
+def test_step5_does_not_force_irrelevant_or_materially_weaker_background():
+    brief = _test_brief("今天只是随手记了几句话。", "平静")
+    focal = candidate("note", MaterialRole.FOCAL_STICKER, subjects=["日记"])
+    selected = LayoutPlan(
+        template_id="short_note_focal_center",
+        materials={"focal_sticker": focal},
+        title="今天的一页",
+        score=0.86,
+    )
+    irrelevant_background = candidate("generic-bg", MaterialRole.BACKGROUND).model_copy(
+        update={"match_reasons": ["role:background"]}
+    )
+    weak_background = candidate("weak-bg", MaterialRole.BACKGROUND, scenes=["daily_life"]).model_copy(
+        update={"match_reasons": ["scene:daily_life"]}
+    )
+    irrelevant_plan = LayoutPlan(
+        template_id="watermark_center_clean",
+        materials={"background": irrelevant_background, "focal_sticker": focal},
+        title=selected.title,
+        score=0.82,
+    )
+    weak_plan = LayoutPlan(
+        template_id="watermark_left_focal",
+        materials={"background": weak_background, "focal_sticker": focal},
+        title=selected.title,
+        score=0.70,
+    )
+
+    kept = step5_layout._prefer_contextual_background(
+        selected,
+        [selected, irrelevant_plan, weak_plan],
+        brief,
+    )
+
+    assert kept.template_id == "short_note_focal_center"
+
+
 def test_compiler_is_deterministic_and_validator_is_read_only():
     text = "今天猫猫一直趴在键盘上不让我工作，最后抱着它一起看电影。"
     brief = _test_brief(text, "开心", scene="home", sub_scene="pet_companion", concepts=["cat", "companion"])
