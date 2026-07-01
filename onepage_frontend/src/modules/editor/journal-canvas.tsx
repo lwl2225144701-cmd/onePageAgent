@@ -67,6 +67,14 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
     () => layout.elements.filter((element) => ["image", "sticker", "decoration"].includes(element.type) && typeof element.props.url === "string" && element.props.url).length,
     [layout.elements],
   );
+  const selectedElementType = useMemo(() => {
+    if (!selectedId) return undefined;
+    const selectedElement = layout.elements.find((element, index) => {
+      const id = String(element.props.id ?? `${element.type}-${index}`);
+      return id === selectedId;
+    });
+    return selectedElement?.type;
+  }, [layout.elements, selectedId]);
 
   const toDataUrl = useCallback(async (format: CanvasExportFormat) => {
     const stage = stageRef.current;
@@ -97,14 +105,15 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
   useEffect(() => {
     const transformer = transformerRef.current;
     if (!transformer) return;
-    const node = selectedId ? nodeRefs.current[selectedId] : null;
+    const tagSelected = selectedElementType === "date_tag" || selectedElementType === "mood_tag" || selectedElementType === "weather_tag";
+    const node = selectedId && !tagSelected ? nodeRefs.current[selectedId] : null;
     if (node) {
       transformer.nodes([node]);
     } else {
       transformer.nodes([]);
     }
     transformer.getLayer()?.batchDraw();
-  }, [selectedId, layout]);
+  }, [selectedElementType, selectedId, layout]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -154,7 +163,14 @@ export function JournalCanvas({ onReady }: { onReady?: (api: CanvasExportApi | u
       <div className="overflow-hidden rounded-[20px] border border-[#eadcc9]/24 bg-[#fffdf8]/50 p-1 shadow-[0_12px_24px_rgba(111,82,51,0.085)]">
         <Stage ref={stageRef} width={layout.page.width * scale} height={layout.page.height * scale} scaleX={scale} scaleY={scale}>
           <Layer>
-            <Rect width={layout.page.width} height={layout.page.height} fill={layout.page.background} cornerRadius={28} />
+            <Rect
+              width={layout.page.width}
+              height={layout.page.height}
+              fill={layout.page.background}
+              cornerRadius={28}
+              onClick={() => select(undefined)}
+              onTap={() => select(undefined)}
+            />
             {pageBorderWidth > 0 ? (
               <Rect
                 x={pageBorderInset}

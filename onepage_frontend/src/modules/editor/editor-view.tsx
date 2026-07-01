@@ -15,7 +15,6 @@ import { toast } from "@/shared/toast";
 import type { PageResponse } from "@/types/backend";
 
 type Panel = "stickers" | "text" | "font" | "export" | "layout";
-const DEFAULT_JOURNAL_NAME = "2024 手账本";
 
 const JournalCanvas = dynamic(() => import("@/modules/editor/journal-canvas").then((mod) => mod.JournalCanvas), {
   ssr: false
@@ -34,7 +33,6 @@ export function EditorView({ initialPage, onBack, onSaved }: { initialPage?: Pag
   const undo = useEditorStore((state) => state.undo);
   const redo = useEditorStore((state) => state.redo);
   const journals = useJournalStore((state) => state.journals);
-  const activeJournalId = useJournalStore((state) => state.activeJournalId);
   const setJournals = useJournalStore((state) => state.setJournals);
   const upsertJournal = useJournalStore((state) => state.upsertJournal);
   const setActiveJournalId = useJournalStore((state) => state.setActiveJournalId);
@@ -73,36 +71,40 @@ export function EditorView({ initialPage, onBack, onSaved }: { initialPage?: Pag
     onBack();
   }
 
-  async function resolveJournalId() {
-    if (activeJournalId) return activeJournalId;
-
-    const localJournal = journals.find((journal) => journal.name === DEFAULT_JOURNAL_NAME) ?? journals[0];
+  async function resolveJournalId(pageDate: string) {
+    const year = pageDate.slice(0, 4);
+    const journalName = `${year} 手账本`;
+    const localJournal =
+      journals.find((journal) => journal.name === journalName) ??
+      journals.find((journal) => journalYear(journal.name, journal.settings) === year);
     if (localJournal) {
       setActiveJournalId(localJournal.id);
       return localJournal.id;
     }
 
-    const result = await listJournals(1, 20).catch(() => ({ data: [] as typeof journals }));
+    const result = await listJournals(1, 100).catch(() => ({ data: [] as typeof journals }));
     if (result.data.length > 0) {
       setJournals(result.data);
-      const remoteJournal = result.data.find((journal) => journal.name === DEFAULT_JOURNAL_NAME) ?? result.data[0];
+      const remoteJournal =
+        result.data.find((journal) => journal.name === journalName) ??
+        result.data.find((journal) => journalYear(journal.name, journal.settings) === year);
       if (remoteJournal) {
         setActiveJournalId(remoteJournal.id);
         return remoteJournal.id;
       }
     }
 
-    const createdJournal = await createJournal(DEFAULT_JOURNAL_NAME, { style: "healing" });
+    const createdJournal = await createJournal(journalName, { style: "healing", year });
     upsertJournal(createdJournal);
     setActiveJournalId(createdJournal.id);
     return createdJournal.id;
   }
 
   async function savePage() {
-    const pageDate = getTodayDate();
+    const pageDate = initialPage?.page_date ?? getTodayDate();
     const pageTitle = buildPageTitle(text, mood);
     try {
-      const journalId = await resolveJournalId();
+      const journalId = await resolveJournalId(pageDate);
       const payload = {
         journal_id: journalId,
         title: pageTitle,
@@ -126,7 +128,7 @@ export function EditorView({ initialPage, onBack, onSaved }: { initialPage?: Pag
       const fallbackPageId = savedPageId ?? `${Date.now()}`;
       upsertLocalPage({
         id: fallbackPageId,
-        journal_id: activeJournalId ?? "local",
+        journal_id: `local-${pageDate.slice(0, 4)}`,
         user_id: "local",
         title: pageTitle,
         content_text: text,
@@ -278,4 +280,10 @@ function buildPageTitle(text: string, mood: string) {
     .find(Boolean);
   if (!firstLine) return `${mood || "今日"}手账`;
   return firstLine.length > 18 ? `${firstLine.slice(0, 18)}...` : firstLine;
+}
+
+function journalYear(name: string, settings?: Record<string, unknown> | null) {
+  const configuredYear = String(settings?.year ?? "").trim();
+  if (/^\d{4}$/.test(configuredYear)) return configuredYear;
+  return name.match(/(?:19|20)\d{2}/)?.[0];
 }

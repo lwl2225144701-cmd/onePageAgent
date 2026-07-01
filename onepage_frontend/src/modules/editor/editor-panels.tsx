@@ -16,6 +16,9 @@ const exportOptions: Array<{ format: "png" | "jpeg" | "pdf"; label: string }> = 
   { format: "pdf", label: "PDF 文档" },
 ];
 
+const moodIconOptions = ["😊", "😌", "😮‍💨", "🥹", "🤩", "🥰", "🤔", "😴", "😔", "😢", "😟", "😡"];
+const weatherIconOptions = ["☀️", "🌤️", "⛅", "☁️", "🌧️", "⛈️", "❄️", "🌫️", "💨", "🌈"];
+
 export function EditorPanels({
   panel,
   onClose,
@@ -25,12 +28,18 @@ export function EditorPanels({
   onClose: () => void;
   onExport: (format: "png" | "jpeg" | "pdf") => void;
 }) {
-  const { layout, selectedId, updateText, updateFont, replaceSticker } = useEditorStore();
+  const { layout, selectedId, updateText, updateTagIcon, updateFont, replaceSticker } = useEditorStore();
   const [stickerOptions, setStickerOptions] = useState<MaterialResponse[]>([]);
   const [draftText, setDraftText] = useState("");
   const selectedIndex = layout.elements.findIndex((element, index) => String(element.props.id ?? `${element.type}-${index}`) === selectedId);
   const selectedElement = selectedIndex >= 0 ? layout.elements[selectedIndex] : undefined;
   const selectedTextElement = selectedElement && ["text", "date_tag", "mood_tag", "weather_tag"].includes(selectedElement.type) ? selectedElement : undefined;
+  const selectedIconOptions =
+    selectedElement?.type === "mood_tag"
+      ? moodIconOptions
+      : selectedElement?.type === "weather_tag"
+        ? weatherIconOptions
+        : [];
   const selectedStickers = layout.elements.filter((element) => element.type === "sticker" && typeof element.props.url === "string" && element.props.url);
   const selectedStickerElement = useMemo(
     () => (selectedElement?.type === "sticker" ? selectedElement : undefined),
@@ -61,6 +70,31 @@ export function EditorPanels({
       </div>
       {panel === "text" && (
         <div>
+          {selectedIconOptions.length > 0 && selectedId ? (
+            <div className="mb-4 rounded-[16px] border border-[#eadcc9]/48 bg-[#fffdf8] p-3">
+              <div className="mb-2 text-sm font-medium text-[#4f3d2c]">切换图标</div>
+              <div className="flex flex-wrap gap-2">
+                {selectedIconOptions.map((icon) => {
+                  const active = String(selectedElement?.props.icon ?? "") === icon;
+                  return (
+                    <button
+                      key={icon}
+                      type="button"
+                      aria-label={`使用图标 ${icon}`}
+                      className={`grid h-10 w-10 place-items-center rounded-full border text-lg transition ${
+                        active
+                          ? "border-[#c99a66] bg-[#f1dcc5] shadow-[0_4px_10px_rgba(168,126,92,0.14)]"
+                          : "border-[#eadcc9]/55 bg-[#fffaf3] hover:bg-[#f4eadc]"
+                      }`}
+                      onClick={() => updateTagIcon(selectedId, icon)}
+                    >
+                      {icon}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
           <textarea
             className="min-h-28 w-full resize-none rounded-[16px] border border-[#eadcc9]/60 bg-[#fffdf8] p-3 leading-7 text-[#4f3d2c] outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]"
             value={draftText}

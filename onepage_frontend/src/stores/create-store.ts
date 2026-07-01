@@ -11,29 +11,37 @@ type CreateState = {
   setImageFiles: (files: File[]) => void;
   setImageUrls: (urls: string[]) => void;
   setWeather: (weather: Record<string, unknown>) => void;
+  reset: () => void;
 };
 
-export const useCreateStore = create<CreateState>((set) => ({
+const initialWeather = {
+  weather: "unknown",
+  temperature: null,
+  humidity: null,
+  location: "",
+  city: "",
+  district: "",
+  province: "",
+  adcode: "",
+  icon_key: "unknown",
+  report_time: "",
+  source: "unavailable",
+};
+
+const initialCreateState = () => ({
   text: "",
   mood: "平静",
   imageFiles: [],
   imageUrls: [],
-  weather: {
-    weather: "unknown",
-    temperature: null,
-    humidity: null,
-    location: "",
-    city: "",
-    district: "",
-    province: "",
-    adcode: "",
-    icon_key: "unknown",
-    report_time: "",
-    source: "unavailable",
-  },
+  weather: { ...initialWeather },
+});
+
+export const useCreateStore = create<CreateState>((set) => ({
+  ...initialCreateState(),
   setText: (text) => set({ text }),
   setMood: (mood) => set({ mood }),
   setImageFiles: (imageFiles) => set({ imageFiles }),
   setImageUrls: (imageUrls) => set({ imageUrls }),
-  setWeather: (weather) => set({ weather })
+  setWeather: (weather) => set({ weather }),
+  reset: () => set(initialCreateState()),
 }));

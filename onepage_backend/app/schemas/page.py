@@ -1,5 +1,4 @@
-from datetime import date, datetime
-from typing import Any
+from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -34,12 +33,14 @@ class CreatePageRequest(BaseModel):
 
 
 class UpdatePageRequest(BaseModel):
+    journal_id: str | None = None
     title: str | None = None
     content_text: str | None = None
     layout_json: dict | None = None
     elements: list[ElementDTO] | None = None
     weather: dict | None = None
     mood: str | None = None
+    page_date: str | None = None
 
 
 class PageResponse(BaseModel):

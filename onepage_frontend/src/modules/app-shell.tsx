@@ -9,6 +9,9 @@ import { LibraryView } from "@/modules/journal/library-view";
 import { MaterialsView } from "@/modules/materials/materials-view";
 import { ProfileView } from "@/modules/profile/profile-view";
 import { Button } from "@/shared/ui/button";
+import { useAITaskStore } from "@/stores/ai-task-store";
+import { useCreateStore } from "@/stores/create-store";
+import { useEditorStore } from "@/stores/editor-store";
 import type { PageResponse } from "@/types/backend";
 
 export type Screen = "home" | "create" | "loading" | "editor" | "library" | "materials" | "profile";
@@ -24,11 +27,23 @@ const navItems: Array<{ id: Screen; label: string; icon: React.ComponentType<{ s
 export function AppShell({ initialScreen = "home" }: { initialScreen?: Screen }) {
   const [screen, setScreen] = useState<Screen>(initialScreen);
   const [editingPage, setEditingPage] = useState<PageResponse | undefined>();
+  const resetCreate = useCreateStore((state) => state.reset);
+  const resetAITask = useAITaskStore((state) => state.reset);
+  const resetEditor = useEditorStore((state) => state.reset);
   const immersiveEditor = screen === "editor";
+
+  function startNewPage() {
+    resetCreate();
+    resetAITask();
+    resetEditor();
+    setEditingPage(undefined);
+    setScreen("create");
+  }
 
   function handleNavigate(nextScreen: Screen) {
     if (nextScreen === "create") {
-      setEditingPage(undefined);
+      startNewPage();
+      return;
     }
     setScreen(nextScreen);
   }
@@ -90,6 +105,9 @@ export function AppShell({ initialScreen = "home" }: { initialScreen?: Screen })
             initialPage={editingPage}
             onBack={() => setScreen(editingPage ? "library" : "create")}
             onSaved={() => {
+              resetCreate();
+              resetAITask();
+              resetEditor();
               setEditingPage(undefined);
               setScreen("library");
             }}
@@ -97,10 +115,7 @@ export function AppShell({ initialScreen = "home" }: { initialScreen?: Screen })
         )}
         {screen === "library" && (
           <LibraryView
-            onCreate={() => {
-              setEditingPage(undefined);
-              setScreen("create");
-            }}
+            onCreate={startNewPage}
             onOpenPage={(page) => {
               setEditingPage(page);
               setScreen("editor");

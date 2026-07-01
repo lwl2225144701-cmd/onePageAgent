@@ -40,10 +40,12 @@ type EditorState = {
   undo: () => void;
   redo: () => void;
   updateText: (elementIndex: number, content: string) => void;
+  updateTagIcon: (selectedId: string, icon: string) => void;
   updateFont: (selectedId: string | undefined, font: string) => void;
   replaceSticker: (selectedId: string, url: string) => void;
   updateElementPosition: (selectedId: string, x: number, y: number) => void;
   updateElementTransform: (selectedId: string, patch: TransformPatch) => void;
+  reset: () => void;
 };
 
 function getElementId(element: LayoutElement, index: number) {
@@ -122,7 +124,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
   return {
     layout: cloneLayout(fallbackLayout),
     savedLayout: cloneLayout(fallbackLayout),
-    selectedId: "title",
+    selectedId: undefined,
     past: [],
     future: [],
     canUndo: false,
@@ -137,6 +139,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
         return {
           ...replaceHistory(nextLayout),
           savedLayout: nextSavedLayout,
+          selectedId: undefined,
           isDirty: !layoutsEqual(nextLayout, nextSavedLayout),
           lastCommitAt: 0,
           lastCommitKind: "load",
@@ -188,6 +191,14 @@ export const useEditorStore = create<EditorState>((set, get) => {
       });
       commitLayout(nextLayout, { kind: "content" });
     },
+    updateTagIcon: (selectedId, icon) => {
+      const nextLayout = withSelectedElement(get().layout, selectedId, (element) =>
+        ["mood_tag", "weather_tag"].includes(element.type)
+          ? { ...element, props: { ...element.props, icon } }
+          : element,
+      );
+      commitLayout(nextLayout, { kind: "content" });
+    },
     updateFont: (selectedId, font) => {
       const textTypes = new Set(["text", "date_tag", "mood_tag", "weather_tag"]);
       const nextLayout = selectedId
@@ -234,5 +245,14 @@ export const useEditorStore = create<EditorState>((set, get) => {
       }));
       commitLayout(nextLayout, { kind: "geometry" });
     },
+    reset: () =>
+      set({
+        ...replaceHistory(fallbackLayout),
+        savedLayout: cloneLayout(fallbackLayout),
+        selectedId: undefined,
+        isDirty: false,
+        lastCommitAt: 0,
+        lastCommitKind: "load",
+      }),
   };
 });

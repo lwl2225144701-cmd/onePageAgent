@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronLeft, Plus } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import { getJournal, listJournals } from "@/api/journals.api";
+import { getPage } from "@/api/pages.api";
 import { useJournalStore } from "@/stores/journal-store";
 import type { PageResponse } from "@/types/backend";
 
@@ -81,27 +82,60 @@ const shelfInteriorStyle = {
   boxShadow: "inset 0 16px 30px rgba(87,53,25,0.30), inset 0 0 0 1px rgba(255,255,255,0.28)",
 } satisfies React.CSSProperties;
 
-export function LibraryView({ onCreate }: { onCreate: () => void; onOpenPage?: (page: PageResponse) => void }) {
+export function LibraryView({ onCreate, onOpenPage }: { onCreate: () => void; onOpenPage: (page: PageResponse) => void }) {
   const { journals, localPages, setJournals } = useJournalStore();
-  const [remotePages, setRemotePages] = useState<PageBrief[]>([]);
+  const [selectedBook, setSelectedBook] = useState<BookYear | undefined>();
+  const [selectedJournalId, setSelectedJournalId] = useState<string | undefined>();
+  const [selectedPages, setSelectedPages] = useState<PageBrief[]>([]);
+  const [pagesLoading, setPagesLoading] = useState(false);
 
   useEffect(() => {
     listJournals()
-      .then(async (result) => {
-        setJournals(result.data);
-        const firstId = result.data[0]?.id;
-        if (!firstId) {
-          setRemotePages([]);
-          return;
-        }
-        const detail = await getJournal(firstId).catch(() => undefined);
-        setRemotePages((detail?.pages as PageBrief[] | undefined) ?? []);
-      })
+      .then((result) => setJournals(result.data))
       .catch(() => setJournals([]));
   }, [setJournals]);
 
-  const pages = useMemo(() => mergePages(remotePages, localPages), [remotePages, localPages]);
-  const pageCount = pages.length || journals[0]?.page_count || 0;
+  const pageCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    journals.forEach((journal) => {
+      const year = journalYear(journal.name, journal.settings);
+      if (year) counts[year] = (counts[year] ?? 0) + journal.page_count;
+    });
+    localPages.forEach((page) => {
+      if (page.user_id !== "local") return;
+      const year = pageYear(page);
+      if (year) counts[year] = (counts[year] ?? 0) + 1;
+    });
+    return counts;
+  }, [journals, localPages]);
+
+  async function openBook(book: BookYear) {
+    setSelectedBook(book);
+    setPagesLoading(true);
+    const journal =
+      journals.find((item) => item.name === `${book.year} 手账本`) ??
+      journals.find((item) => journalYear(item.name, item.settings) === book.year);
+    setSelectedJournalId(journal?.id);
+    const localForYear = localPages.filter((page) => pageYear(page) === book.year);
+    if (!journal) {
+      setSelectedPages(mergePages([], localForYear));
+      setPagesLoading(false);
+      return;
+    }
+    const detail = await getJournal(journal.id).catch(() => undefined);
+    setSelectedPages(mergePages((detail?.pages as PageBrief[] | undefined) ?? [], localForYear));
+    setPagesLoading(false);
+  }
+
+  async function openSavedPage(page: PageBrief) {
+    const localPage = localPages.find((item) => item.id === page.id && item.layout_json);
+    if (localPage) {
+      onOpenPage(localPage);
+      return;
+    }
+    const detail = await getPage(page.id).catch(() => undefined);
+    if (detail) onOpenPage(detail);
+  }
 
   return (
     <section className="grid min-h-[calc(100dvh-112px)] place-items-center max-md:items-stretch">
@@ -113,8 +147,19 @@ export function LibraryView({ onCreate }: { onCreate: () => void; onOpenPage?: (
         <LibraryHeader />
         <PaperTear />
         <div className="relative z-10 mt-1 flex min-h-0 flex-1">
-          <WoodCabinet pageCount={pageCount} onCreate={onCreate} />
+          <WoodCabinet pageCounts={pageCounts} onCreate={onCreate} onOpenBook={openBook} />
         </div>
+        {selectedBook ? (
+          <BookPagesPanel
+            book={selectedBook}
+            journalId={selectedJournalId}
+            pages={selectedPages}
+            loading={pagesLoading}
+            onClose={() => setSelectedBook(undefined)}
+            onCreate={onCreate}
+            onOpenPage={openSavedPage}
+          />
+        ) : null}
       </div>
     </section>
   );
@@ -160,10 +205,18 @@ function TinyDriedStem({ className }: { className: string }) {
   );
 }
 
-function WoodCabinet({ pageCount, onCreate }: { pageCount: number; onCreate: () => void }) {
+function WoodCabinet({
+  pageCounts,
+  onCreate,
+  onOpenBook,
+}: {
+  pageCounts: Record<string, number>;
+  onCreate: () => void;
+  onOpenBook: (book: BookYear) => void;
+}) {
   const bookItems: ShelfItem[] = [
-    ...shelfBooks.map((book) => ({ kind: "book" as const, book, pageCount: book.year === "2024" ? pageCount : 0 })),
-    ...historyBooks.map((book) => ({ kind: "book" as const, book, pageCount: 0, quiet: true })),
+    ...shelfBooks.map((book) => ({ kind: "book" as const, book, pageCount: pageCounts[book.year] ?? 0 })),
+    ...historyBooks.map((book) => ({ kind: "book" as const, book, pageCount: pageCounts[book.year] ?? 0, quiet: true })),
     { kind: "new" },
   ];
   const shelfRows = chunkShelfItems(bookItems, 3);
@@ -179,7 +232,7 @@ function WoodCabinet({ pageCount, onCreate }: { pageCount: number; onCreate: () 
               style={{ gridTemplateRows: `repeat(${shelfRows.length}, minmax(204px, 1fr))` }}
             >
               {shelfRows.map((row, index) => (
-                <ShelfLayer key={index} items={row} layerIndex={index} onCreate={onCreate} />
+                <ShelfLayer key={index} items={row} layerIndex={index} onCreate={onCreate} onOpenBook={onOpenBook} />
               ))}
             </div>
           </div>
@@ -191,7 +244,17 @@ function WoodCabinet({ pageCount, onCreate }: { pageCount: number; onCreate: () 
   );
 }
 
-function ShelfLayer({ items, layerIndex, onCreate }: { items: ShelfItem[]; layerIndex: number; onCreate: () => void }) {
+function ShelfLayer({
+  items,
+  layerIndex,
+  onCreate,
+  onOpenBook,
+}: {
+  items: ShelfItem[];
+  layerIndex: number;
+  onCreate: () => void;
+  onOpenBook: (book: BookYear) => void;
+}) {
   const booksBottom = layerIndex === 0 ? "bottom-[70px]" : "bottom-[58px]";
   const boardBottom = layerIndex === 0 ? 44 : 32;
 
@@ -199,7 +262,7 @@ function ShelfLayer({ items, layerIndex, onCreate }: { items: ShelfItem[]; layer
     <div className="relative min-h-[204px]">
       <div className={`absolute ${booksBottom} left-0 right-0 z-30 grid grid-cols-3 items-end gap-[18px]`}>
         {items.map((item, index) => (
-          <ShelfItemView key={`${item.kind}-${index}`} item={item} onCreate={onCreate} />
+          <ShelfItemView key={`${item.kind}-${index}`} item={item} onCreate={onCreate} onOpenBook={onOpenBook} />
         ))}
       </div>
       <LayerShelfBoard bottom={boardBottom} />
@@ -207,7 +270,15 @@ function ShelfLayer({ items, layerIndex, onCreate }: { items: ShelfItem[]; layer
   );
 }
 
-function ShelfItemView({ item, onCreate }: { item: ShelfItem; onCreate: () => void }) {
+function ShelfItemView({
+  item,
+  onCreate,
+  onOpenBook,
+}: {
+  item: ShelfItem;
+  onCreate: () => void;
+  onOpenBook: (book: BookYear) => void;
+}) {
   if (item.kind === "new") {
     return (
       <div className="-translate-x-1.5">
@@ -218,7 +289,7 @@ function ShelfItemView({ item, onCreate }: { item: ShelfItem; onCreate: () => vo
 
   return (
     <div className={item.quiet ? "opacity-75" : undefined}>
-      <JournalBook book={item.book} pageCount={item.pageCount ?? 0} />
+      <JournalBook book={item.book} pageCount={item.pageCount ?? 0} onOpen={() => onOpenBook(item.book)} />
     </div>
   );
 }
@@ -252,11 +323,16 @@ function NaturalLight() {
   );
 }
 
-function JournalBook({ book, pageCount }: { book: BookYear; pageCount: number }) {
+function JournalBook({ book, pageCount, onOpen }: { book: BookYear; pageCount: number; onOpen: () => void }) {
   const palette = bookPalettes[book.tone];
 
   return (
-    <div className="book-wrap relative mx-auto h-[168px] w-full max-w-[92px]">
+    <button
+      type="button"
+      className="book-wrap relative mx-auto block h-[168px] w-full max-w-[92px] text-left transition hover:-translate-y-1 focus:outline-none"
+      aria-label={`打开 ${book.year} 手账本，共 ${pageCount} 页`}
+      onClick={onOpen}
+    >
       <div className="absolute -bottom-[8px] left-[8px] h-[12px] w-[80%] rounded-full bg-[#5C3518]/28 blur-[4px]" />
       <div className="absolute bottom-[2px] left-[3px] h-[158px] w-[16px] rounded-l-[5px] bg-[linear-gradient(90deg,rgba(77,46,24,0.22),rgba(255,255,255,0.06),transparent)] shadow-[5px_0_6px_rgba(76,45,21,0.18)]" />
       <div
@@ -286,7 +362,7 @@ function JournalBook({ book, pageCount }: { book: BookYear; pageCount: number })
         </div>
       </div>
       <div className="absolute bottom-[-28px] left-[20px] z-[18] h-[31px] w-[12px] bg-[linear-gradient(90deg,rgba(90,52,25,0.12),var(--ribbon-color),rgba(255,255,255,0.18))] shadow-[0_3px_4px_rgba(80,49,23,0.16)] [clip-path:polygon(0_0,100%_0,100%_100%,50%_80%,0_100%)]" style={{ "--ribbon-color": palette.ribbon } as React.CSSProperties} />
-    </div>
+    </button>
   );
 }
 
@@ -324,7 +400,7 @@ function NewBookSlot({ onCreate }: { onCreate: () => void }) {
       <div className="new-book-slot absolute inset-x-0 bottom-0 grid h-[160px] place-items-center rounded-[9px] bg-[#F8EBD6]/25 shadow-[inset_0_0_14px_rgba(255,255,255,0.14),0_8px_14px_rgba(82,51,26,0.10)] backdrop-blur-[1px]">
         <div className="relative z-10 -translate-y-1 text-center">
           <Plus className="mx-auto" size={28} strokeWidth={1.85} />
-          <div className="mt-4 text-[12px] leading-5 tracking-[0.02em] text-[#6F553C]">新建手账本</div>
+          <div className="mt-4 text-[12px] leading-5 tracking-[0.02em] text-[#6F553C]">新增一页</div>
         </div>
       </div>
     </button>
@@ -365,6 +441,83 @@ function DryFlower({ bottom, right }: { bottom: number; right: number }) {
       <span className="absolute left-0 top-[5px] h-[5px] w-[6px] rounded-full bg-current" />
       <span className="absolute right-0 top-[5px] h-[5px] w-[6px] rounded-full bg-current" />
       <span className="absolute left-[6px] top-[6px] h-[3px] w-[3px] rounded-full bg-[#D3A46B]" />
+    </div>
+  );
+}
+
+function BookPagesPanel({
+  book,
+  journalId,
+  pages,
+  loading,
+  onClose,
+  onCreate,
+  onOpenPage,
+}: {
+  book: BookYear;
+  journalId?: string;
+  pages: PageBrief[];
+  loading: boolean;
+  onClose: () => void;
+  onCreate: () => void;
+  onOpenPage: (page: PageBrief) => void;
+}) {
+  return (
+    <div className="absolute inset-x-3 bottom-3 top-[88px] z-[80] flex flex-col overflow-hidden rounded-[24px] border border-[#eadcc9]/75 bg-[#fffaf4]/97 shadow-[0_24px_60px_rgba(79,49,24,0.28)] backdrop-blur">
+      <div className="flex items-center gap-3 border-b border-[#eadcc9]/60 px-4 py-3">
+        <div>
+          <div className="font-song text-[22px] font-semibold text-[#4f3d2c]">{book.year} 手账本</div>
+          <div className="mt-1 text-xs text-[#8a7a68]">{pages.length} 页记录</div>
+        </div>
+        <div className="flex-1" />
+        <button
+          type="button"
+          className="grid h-9 w-9 place-items-center rounded-full text-[#7d6d5d] hover:bg-[#f4eadc]"
+          aria-label="关闭手账本"
+          onClick={onClose}
+        >
+          <X size={18} />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {loading ? (
+          <div className="grid h-full place-items-center text-sm text-[#8a7a68]">正在翻开手账本…</div>
+        ) : pages.length > 0 ? (
+          <div className="grid gap-3">
+            {pages.map((page) => (
+              <button
+                key={page.id}
+                type="button"
+                className="flex items-center gap-3 rounded-[18px] border border-[#eadcc9]/58 bg-[#fffdf8] px-4 py-3 text-left shadow-[0_6px_16px_rgba(111,82,51,0.055)] transition hover:-translate-y-0.5 hover:border-[#d8b994]"
+                onClick={() => onOpenPage(page)}
+              >
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] bg-[#f1e3d1] text-xl">
+                  {page.mood ? moodIcon(String(page.mood)) : "✦"}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium text-[#4f3d2c]">{page.title || "未命名的一页"}</div>
+                  <div className="mt-1 text-xs text-[#8a7a68]">{page.page_date || "未设置日期"}</div>
+                </div>
+                <ChevronRight size={18} className="shrink-0 text-[#b59b80]" />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="grid h-full place-items-center text-center">
+            <div>
+              <div className="font-song text-xl text-[#5f4b38]">这一年还没有记录</div>
+              <div className="mt-2 text-sm text-[#8a7a68]">{journalId ? "写下这一年的第一篇吧" : "保存后会自动创建对应年份手账本"}</div>
+              <button
+                type="button"
+                className="mt-5 rounded-full bg-gradient-to-b from-[#c8a37e] to-[#a97852] px-6 py-2.5 text-sm font-medium text-white shadow-[0_8px_18px_rgba(139,93,52,0.16)]"
+                onClick={onCreate}
+              >
+                新增一页
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -499,6 +652,35 @@ function mergePages(remotePages: PageBrief[], localPages: PageResponse[]): PageB
     merged.set(page.id, page);
   });
   return Array.from(merged.values()).sort((a, b) => String(b.created_at ?? b.page_date ?? "").localeCompare(String(a.created_at ?? a.page_date ?? "")));
+}
+
+function journalYear(name: string, settings?: Record<string, unknown> | null) {
+  const configuredYear = String(settings?.year ?? "").trim();
+  if (/^\d{4}$/.test(configuredYear)) return configuredYear;
+  return name.match(/(?:19|20)\d{2}/)?.[0];
+}
+
+function pageYear(page: Pick<PageResponse, "page_date" | "created_at">) {
+  return String(page.page_date ?? page.created_at ?? "").slice(0, 4);
+}
+
+function moodIcon(mood: string) {
+  return (
+    {
+      开心: "😊",
+      平静: "😌",
+      放松: "😮‍💨",
+      感动: "🥹",
+      兴奋: "🤩",
+      甜蜜: "🥰",
+      发呆: "🤔",
+      困倦: "😴",
+      低落: "😔",
+      难过: "😢",
+      焦虑: "😟",
+      愤怒: "😡",
+    } as Record<string, string>
+  )[mood] ?? "✦";
 }
 
 function chunkShelfItems(items: ShelfItem[], size: number): ShelfItem[][] {
